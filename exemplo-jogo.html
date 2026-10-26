@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Floresta Jogável</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@500;600&family=Silkscreen&display=swap">
+<style>
+  /* Exemplo mínimo de runtime: carrega o projeto do editor e deixa andar pela floresta */
+  :root { --bg: #ebe5d9; --panel: #fbf8f2; --ink: #29251f; --muted: #6c6455; --line: #dcd2c1; --accent: #b5623a; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #1b1916; --panel: #25221e; --ink: #f0e9dd; --muted: #9b917f; --line: #3a352d; --accent: #dc8a58; color-scheme: dark; }
+  }
+  :root[data-theme="dark"] { --bg: #1b1916; --panel: #25221e; --ink: #f0e9dd; --muted: #9b917f; --line: #3a352d; --accent: #dc8a58; color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; font-family: "Instrument Sans", system-ui, sans-serif; color: var(--ink); }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .hud {
+    position: fixed; top: 16px; left: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 12px; font-size: 12.5px; color: var(--muted); display: grid; gap: 6px; max-width: calc(100% - 32px);
+  }
+  .hud b { font: 400 16px/1 "Silkscreen", monospace; color: var(--ink); letter-spacing: .04em; }
+  .hud button { font: 600 12px "Instrument Sans", sans-serif; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; cursor: pointer; justify-self: start; }
+  .hud button:hover { border-color: var(--accent); }
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="Floresta em terceira pessoa"></canvas>
+<div class="hud">
+  <b>FLORESTA JOGÁVEL</b>
+  <span>WASD ou setas para andar · Shift corre · a grama abre passagem</span>
+  <span id="src"></span>
+  <button id="open">Abrir projeto .json…</button>
+</div>
+<input type="file" id="file" accept=".json" hidden>
+<script type="importmap">
+  { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { VegWorld, defaultProject } from './veg-render.js';
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(55, 1, .1, 400);
+const hemi = new THREE.HemisphereLight();
+const sun = new THREE.DirectionalLight(0xffffff, 2.3);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.bias = -0.0005; sun.shadow.normalBias = .04;
+const sc = sun.shadow.camera; sc.left = sc.bottom = -28; sc.right = sc.top = 28; sc.near = 1; sc.far = 200;
+scene.add(hemi, sun, sun.target);
+
+// 1) projeto: o mesmo JSON que o editor salva (ou o que ele deixou no navegador)
+let project = null, label = '';
+try { const s = localStorage.getItem('floresta-voxel:projeto'); if (s) { project = { ...defaultProject(), ...JSON.parse(s) }; label = 'Projeto do editor (salvo no navegador)'; } } catch {}
+let world;
+function load(p, fill) {
+  if (world) scene.remove(world.group);
+  world = new VegWorld(scene, p);
+  if (fill) { world.fillAll('arvores'); world.fillAll('grama'); }
+  world.rescatterTrees();
+  world.rebuildGrass();
+  const S = world.P.style;
+  scene.background = new THREE.Color(S.sky);
+  scene.fog = new THREE.Fog(S.fog, 25, 90);
+  hemi.color.set(S.hemiSky); hemi.groundColor.set(S.hemiGround); sun.color.set(S.sun);
+  player.position.set(0, world.heightAt(0, 0), 0);
+  document.getElementById('src').textContent = label || 'Floresta procedural padrão';
+}
+
+// 2) jogador: um bloco simples; o que importa é empurrar a grama e colidir com troncos
+const player = new THREE.Group();
+const body = new THREE.Mesh(new THREE.BoxGeometry(.5, .9, .35).translate(0, .45, 0), new THREE.MeshLambertMaterial({ color: 0xb5623a }));
+const head = new THREE.Mesh(new THREE.BoxGeometry(.4, .4, .4).translate(0, 1.1, 0), new THREE.MeshLambertMaterial({ color: 0xf0d6b8 }));
+body.castShadow = head.castShadow = true;
+player.add(body, head);
+scene.add(player);
+
+load(project || defaultProject(), !project);
+
+document.getElementById('open').onclick = () => document.getElementById('file').click();
+document.getElementById('file').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  try { const j = JSON.parse(await f.text()); label = f.name; load({ ...defaultProject(), ...j }, false); } catch (err) { document.getElementById('src').textContent = 'Arquivo inválido'; }
+};
+
+const keys = new Set();
+addEventListener('keydown', e => keys.add(e.code));
+addEventListener('keyup', e => keys.delete(e.code));
+// toque: arrastar define a direção
+let touchDir = null;
+canvas.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse') touchDir = { x0: e.clientX, y0: e.clientY, x: 0, y: 0 }; });
+canvas.addEventListener('pointermove', e => { if (touchDir) { touchDir.x = (e.clientX - touchDir.x0) / 60; touchDir.y = (e.clientY - touchDir.y0) / 60; } });
+addEventListener('pointerup', () => touchDir = null);
+
+function resize() { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+
+const vel = new THREE.Vector2(), camPos = new THREE.Vector3(), look = new THREE.Vector3();
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  let ix = (keys.has('KeyD') || keys.has('ArrowRight')) - (keys.has('KeyA') || keys.has('ArrowLeft'));
+  let iz = (keys.has('KeyS') || keys.has('ArrowDown')) - (keys.has('KeyW') || keys.has('ArrowUp'));
+  if (touchDir) { ix = Math.max(-1, Math.min(1, touchDir.x)); iz = Math.max(-1, Math.min(1, touchDir.y)); }
+  const speed = keys.has('ShiftLeft') ? 7 : 3.6;
+  const len = Math.hypot(ix, iz) || 1;
+  vel.lerp(new THREE.Vector2(ix / len * speed, iz / len * speed), 1 - Math.exp(-dt * 10));
+  const p = player.position, lim = world.P.size / 2 - 1;
+  let nx = Math.max(-lim, Math.min(lim, p.x + vel.x * dt)), nz = Math.max(-lim, Math.min(lim, p.z + vel.y * dt));
+  // colisão com troncos (círculo pelo tamanho da árvore) e com degraus altos
+  for (const t of world.trees) {
+    const r = .35 * t.scale + .3, dx = nx - t.x, dz = nz - t.z, d = Math.hypot(dx, dz);
+    if (d < r && d > 1e-4) { nx = t.x + dx / d * r; nz = t.z + dz / d * r; }
+  }
+  if (world.heightAt(nx, nz) - p.y <= .6) { p.x = nx; p.z = nz; }
+  p.y += (world.heightAt(p.x, p.z) - p.y) * (1 - Math.exp(-dt * 18));
+  if (vel.lengthSq() > .05) player.rotation.y = Math.atan2(vel.x, vel.y);
+
+  // a grama se abre em volta do jogador (mesmo uniform do cursor no editor)
+  world.U.uPush.value.set(p.x, p.z, 1.1, .55);
+  world.update(now / 1000);
+
+  camPos.set(p.x + 7, p.y + 7.5, p.z + 9);
+  camera.position.lerp(camPos, 1 - Math.exp(-dt * 5));
+  camera.lookAt(look.set(p.x, p.y + .8, p.z));
+  sun.position.set(p.x + 20, p.y + 40, p.z + 12); sun.target.position.copy(p);
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

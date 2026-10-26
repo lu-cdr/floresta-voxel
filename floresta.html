@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Floresta Voxel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&family=Silkscreen&display=swap">
+<style>
+  /* Mesma família visual do ICQR: creme quente, terracota, Silkscreen na marca */
+  :root {
+    --bg: #ebe5d9; --panel: #fbf8f2; --ink: #29251f; --muted: #6c6455; --line: #dcd2c1;
+    --chip: #efe8dc; --accent: #b5623a; --on-accent: #fff8f0;
+    --shadow: 0 10px 30px rgba(60, 45, 25, .12), 0 1px 3px rgba(60, 45, 25, .08);
+    --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+    --f-body: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
+    --f-pixel: "Silkscreen", ui-monospace, "Courier New", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1b1916; --panel: #25221e; --ink: #f0e9dd; --muted: #9b917f; --line: #3a352d;
+      --chip: #302c26; --accent: #dc8a58; --on-accent: #1b1410;
+      --shadow: 0 10px 30px rgba(0, 0, 0, .45), 0 1px 3px rgba(0, 0, 0, .3);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1b1916; --panel: #25221e; --ink: #f0e9dd; --muted: #9b917f; --line: #3a352d;
+    --chip: #302c26; --accent: #dc8a58; --on-accent: #1b1410;
+    --shadow: 0 10px 30px rgba(0, 0, 0, .45), 0 1px 3px rgba(0, 0, 0, .3);
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--f-body); overflow: hidden; }
+  #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
+  body[data-tool="camera"] #scene { cursor: grab; }
+  body:not([data-tool="camera"]) #scene { cursor: crosshair; }
+
+  .brand {
+    position: fixed; z-index: 2; top: 16px; left: 16px; pointer-events: none; display: grid; gap: 4px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; box-shadow: var(--shadow);
+  }
+  .mark { font-family: var(--f-pixel); font-size: 20px; letter-spacing: .04em; }
+  .brand p { margin: 0; font-size: 12.5px; color: var(--muted); max-width: 34ch; }
+  .stats { font: 500 11.5px/1.5 var(--f-body); color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  /* barra de ferramentas à esquerda */
+  .tools {
+    position: fixed; z-index: 3; left: 16px; top: 50%; transform: translateY(-50%);
+    width: 208px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: var(--shadow); padding: 10px; display: grid; gap: 10px;
+  }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+  .seg button {
+    font: 600 12.5px/1 var(--f-body); color: var(--ink); background: var(--chip); border: 1px solid transparent;
+    border-radius: 9px; padding: 9px 6px; cursor: pointer; display: flex; gap: 6px; align-items: center; justify-content: center;
+    transition: background-color .15s ease, transform .12s ease;
+  }
+  .seg button:hover { border-color: var(--line); }
+  .seg button:active { transform: scale(.97); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+  .seg kbd { font: 500 10px/1 var(--f-pixel); color: var(--muted); }
+  .seg button[aria-pressed="true"] kbd { color: inherit; }
+  .row { display: grid; gap: 4px; }
+  .row label { display: flex; justify-content: space-between; font: 500 11.5px/1 var(--f-body); color: var(--muted); }
+  .row output { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .row input[type=range] { width: 100%; accent-color: var(--accent); }
+  .row select { font: 500 12.5px var(--f-body); color: var(--ink); background: var(--chip); border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
+  .tools h2 { margin: 2px 0 0; font: 700 11px/1 var(--f-body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .busy { font: 500 11.5px/1.3 var(--f-body); color: var(--accent); min-height: 1.3em; }
+
+  .hint {
+    position: fixed; z-index: 2; bottom: 16px; left: 50%; transform: translateX(-50%);
+    font: 500 12px/1.3 var(--f-body); color: var(--muted); background: var(--panel); border: 1px solid var(--line);
+    border-radius: 999px; padding: 8px 14px; box-shadow: var(--shadow); white-space: nowrap; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* menu de debug (lil-gui) com os tokens da página */
+  .lil-gui.root {
+    position: fixed; top: 12px; right: 12px; max-height: calc(100% - 24px); overflow-y: auto; z-index: 4;
+    border-radius: 12px; box-shadow: var(--shadow); border: 1px solid var(--line);
+  }
+  .lil-gui {
+    --background-color: var(--panel); --text-color: var(--ink); --title-background-color: var(--chip);
+    --title-text-color: var(--ink); --widget-color: var(--chip); --hover-color: var(--line); --focus-color: var(--line);
+    --number-color: var(--accent); --string-color: var(--accent); --font-family: var(--f-body); --font-size: 11.5px;
+    --input-font-size: 11.5px; --padding: 5px; --widget-height: 21px; --name-width: 44%;
+  }
+  .lil-gui .title { font-weight: 600; }
+
+  @media (max-width: 760px) {
+    .tools { top: auto; bottom: 64px; transform: none; width: calc(100% - 32px); grid-template-columns: 1fr 1fr; }
+    .tools .seg { grid-column: 1 / -1; grid-template-columns: repeat(4, 1fr); }
+    .tools h2, .busy { grid-column: 1 / -1; }
+    .brand p { display: none; }
+    .lil-gui.root { width: min(300px, calc(100% - 24px)) !important; max-height: 45%; }
+  }
+</style>
+</head>
+<body data-tool="arvores">
+<canvas id="scene" tabindex="0" aria-label="Cena 3D da floresta. Pinte árvores e grama com o pincel."></canvas>
+
+<div class="brand">
+  <div class="mark">FLORESTA VOXEL</div>
+  <p>Pinte florestas inteiras. Ruído Perlin decide espaçamento, espécie, tamanho, formato e cor.</p>
+  <div class="stats" id="stats"></div>
+</div>
+
+<div class="tools" role="toolbar" aria-label="Ferramentas">
+  <div class="seg" id="toolSeg">
+    <button data-tool="camera" aria-pressed="false">Câmera <kbd>C</kbd></button>
+    <button data-tool="arvores" aria-pressed="true">Árvores <kbd>1</kbd></button>
+    <button data-tool="grama" aria-pressed="false">Grama <kbd>2</kbd></button>
+    <button data-tool="borracha" aria-pressed="false">Borracha <kbd>E</kbd></button>
+  </div>
+  <h2>Pincel</h2>
+  <div class="row"><label for="bRadius">Raio <output id="oRadius"></output></label><input id="bRadius" type="range" min="1" max="24" step=".5" value="7"></div>
+  <div class="row"><label for="bStrength">Força <output id="oStrength"></output></label><input id="bStrength" type="range" min=".05" max="1" step=".05" value=".6"></div>
+  <div class="row"><label for="bHard">Dureza <output id="oHard"></output></label><input id="bHard" type="range" min="0" max="1" step=".05" value=".35"></div>
+  <div class="row"><label for="bSpecies">Espécie</label>
+    <select id="bSpecies"><option value="-1">Automática (ruído)</option></select>
+  </div>
+  <div class="row"><label for="bErase">Borracha apaga</label>
+    <select id="bErase"><option value="ambos">árvores e grama</option><option value="arvores">só árvores</option><option value="grama">só grama</option></select>
+  </div>
+  <div class="busy" id="busy" aria-live="polite"></div>
+</div>
+
+<div class="hint" id="hint">Arraste para pintar · botão direito gira · roda dá zoom · Shift apaga · [ ] muda o raio</div>
+<input type="file" id="fileProject" accept=".json,application/json" hidden>
+<input type="file" id="fileStyle" accept=".json,application/json" hidden>
+
+<script type="importmap">
+  { "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+    "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.19.2/dist/lil-gui.esm.min.js"
+  } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import GUI from 'lil-gui';
+import { VegWorld, defaultProject, treeGeometry, bakedTreeMesh } from './veg-render.js';
+import { SPECIES, SPECIES_KEYS, STYLES, genTreeVoxels, meshVoxels, variantSeed } from './veg-core.js';
+
+const $ = s => document.querySelector(s);
+const canvas = $('#scene');
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+
+/* ---------- renderer, cena, luz ---------- */
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap; // sombra dura, como no ICQR
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+const scene = new THREE.Scene();
+const hemi = new THREE.HemisphereLight(0xfffaf0, 0xb3a894, 1.05);
+const sun = new THREE.DirectionalLight(0xfff1dc, 2.3);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.bias = -0.0005;
+sun.shadow.normalBias = 0.04;
+scene.add(hemi, sun, sun.target);
+
+const view = { showTrees: true, showGrass: true, sunAz: 35, sunEl: 58, sunI: 2.3, hemiI: 1.05, shadows: true, fog: true, iso: false, overlay: 'nenhum', autosave: true };
+
+/* ---------- mundo ---------- */
+let project = defaultProject();
+const saved = store.get('floresta-voxel:projeto');
+if (saved) { try { project = { ...project, ...JSON.parse(saved) }; } catch {} }
+const world = new VegWorld(scene, project);
+if (!saved) { world.fillAll('arvores', 1); world.fillAll('grama', 1); }
+let P = world.P;
+
+/* ---------- câmeras ---------- */
+const persp = new THREE.PerspectiveCamera(42, 1, .1, 800);
+const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -400, 800);
+let camera = persp;
+let controls;
+const brush = { tool: 'arvores', radius: 7, strength: .6, hard: .35, species: -1, erase: 'ambos' };
+function makeControls() {
+  const prev = controls ? { t: controls.target.clone() } : null;
+  controls?.dispose();
+  controls = new OrbitControls(camera, canvas);
+  controls.enableDamping = true;
+  controls.maxPolarAngle = Math.PI * .47;
+  controls.minDistance = 4; controls.maxDistance = 300;
+  if (prev) controls.target.copy(prev.t);
+  applyToolToControls();
+}
+function placeCamera() {
+  const s = P.size;
+  persp.position.set(s * .55, s * .5, s * .62);
+  ortho.position.set(s, s * .82, s);
+  ortho.zoom = 1;
+  controls?.target.set(0, 0, 0);
+}
+placeCamera();
+makeControls();
+
+/* ---------- ferramentas e pincel ---------- */
+function applyToolToControls() {
+  const paint = brush.tool !== 'camera';
+  controls.mouseButtons = paint
+    ? { LEFT: -1, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE }
+    : { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+  controls.touches = paint ? { ONE: -1, TWO: THREE.TOUCH.DOLLY_ROTATE } : { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+}
+function setTool(t) {
+  brush.tool = t;
+  document.body.dataset.tool = t;
+  document.querySelectorAll('#toolSeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tool === t)));
+  ring.visible = t !== 'camera';
+  applyToolToControls();
+  $('#hint').textContent = t === 'camera'
+    ? 'Arraste para girar · botão direito move · roda dá zoom'
+    : 'Arraste para pintar · botão direito gira · roda dá zoom · Shift apaga · [ ] muda o raio';
+}
+document.querySelectorAll('#toolSeg button').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
+for (const k of SPECIES_KEYS) $('#bSpecies').add(new Option(SPECIES[k].label, SPECIES_KEYS.indexOf(k)));
+const bindRange = (id, out, key, fmt = v => v) => {
+  const el = $(id), o = $(out);
+  const sync = () => { brush[key] = +el.value; o.textContent = fmt(+el.value); };
+  el.addEventListener('input', sync); sync();
+  return v => { el.value = v; sync(); };
+};
+const setRadius = bindRange('#bRadius', '#oRadius', 'radius', v => v.toFixed(1));
+bindRange('#bStrength', '#oStrength', 'strength', v => Math.round(v * 100) + '%');
+bindRange('#bHard', '#oHard', 'hard', v => Math.round(v * 100) + '%');
+$('#bSpecies').addEventListener('change', e => brush.species = +e.target.value);
+$('#bErase').addEventListener('change', e => brush.erase = e.target.value);
+
+// anel do pincel acompanhando o relevo
+const RING_N = 72;
+const ring = new THREE.LineLoop(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(RING_N * 3), 3)),
+  new THREE.LineBasicMaterial({ color: 0xb5623a, depthTest: false, transparent: true, opacity: .9 }));
+ring.renderOrder = 10; ring.frustumCulled = false; ring.visible = false;
+scene.add(ring);
+const cursor = { x: 0, z: 0, on: false };
+function updateRing() {
+  const p = ring.geometry.attributes.position;
+  for (let i = 0; i < RING_N; i++) {
+    const a = i / RING_N * Math.PI * 2, x = cursor.x + Math.cos(a) * brush.radius, z = cursor.z + Math.sin(a) * brush.radius;
+    p.setXYZ(i, x, world.heightAt(x, z) + .08, z);
+  }
+  p.needsUpdate = true;
+  ring.material.color.set(brush.tool === 'borracha' ? 0x6c6455 : getComputedStyle(document.documentElement).getPropertyValue('--accent').trim());
+}
+
+const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
+const pointers = new Set();
+let painting = false, shiftDown = false;
+const dirty = { trees: false, grass: null, colors: false, terrain: false, variants: 0, save: 0 };
+const mergeBounds = (a, b) => !a ? b : { x0: Math.min(a.x0, b.x0), x1: Math.max(a.x1, b.x1), z0: Math.min(a.z0, b.z0), z1: Math.max(a.z1, b.z1) };
+
+function pick(e) {
+  const r = canvas.getBoundingClientRect();
+  ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  raycaster.setFromCamera(ndc, camera);
+  return world.raycast(raycaster.ray);
+}
+let lastHit = null;
+function stamp(e, first) {
+  const hit = pick(e);
+  if (!hit) return;
+  cursor.x = hit.x; cursor.z = hit.z; cursor.on = true;
+  const erase = brush.tool === 'borracha' || e.shiftKey;
+  const layers = brush.tool === 'grama' ? ['grama'] : brush.tool === 'arvores' ? ['arvores']
+    : brush.erase === 'ambos' ? ['arvores', 'grama'] : [brush.erase];
+  const s = brush.strength * (erase ? 1 : .5);
+  // carimbos espaçados ao longo do traço, para um arrasto rápido não deixar falhas
+  const from = first || !lastHit ? hit : lastHit;
+  const dist = Math.hypot(hit.x - from.x, hit.z - from.z), gap = Math.max(.5, brush.radius * .35);
+  const n = Math.max(1, Math.ceil(dist / gap));
+  for (let i = first ? 0 : 1; i <= n; i++) {
+    const x = from.x + (hit.x - from.x) * i / n, z = from.z + (hit.z - from.z) * i / n;
+    for (const L of layers) {
+      const b = world.paint(L, x, z, brush.radius, s, brush.hard, erase, brush.species);
+      if (L === 'arvores') dirty.trees = true;
+      dirty.grass = mergeBounds(dirty.grass, b);
+    }
+  }
+  lastHit = hit;
+  dirty.colors = true;
+  dirty.save = performance.now();
+}
+canvas.addEventListener('pointerdown', e => {
+  pointers.add(e.pointerId);
+  if (pointers.size > 1) { painting = false; return; }
+  if (brush.tool !== 'camera' && e.button === 0) {
+    painting = true;
+    canvas.setPointerCapture(e.pointerId);
+    stamp(e, true);
+  }
+});
+canvas.addEventListener('pointermove', e => {
+  if (painting) stamp(e);
+  else if (brush.tool !== 'camera') {
+    const hit = pick(e);
+    if (hit) { cursor.x = hit.x; cursor.z = hit.z; cursor.on = true; }
+  }
+});
+const endPaint = e => { pointers.delete(e.pointerId); painting = false; };
+canvas.addEventListener('pointerup', endPaint);
+canvas.addEventListener('pointercancel', endPaint);
+canvas.addEventListener('pointerleave', () => { cursor.on = false; });
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+addEventListener('keydown', e => {
+  if (e.target.closest?.('input, select, textarea, .lil-gui')) return;
+  const k = e.key.toLowerCase();
+  if (k === 'c') setTool('camera');
+  else if (k === '1') setTool('arvores');
+  else if (k === '2') setTool('grama');
+  else if (k === 'e') setTool('borracha');
+  else if (k === '[') setRadius(Math.max(1, brush.radius - 1));
+  else if (k === ']') setRadius(Math.min(24, brush.radius + 1));
+});
+
+/* ---------- menu de debug ---------- */
+const FIELD_LABELS = {
+  density: 'Densidade (onde nasce)', spacing: 'Espaçamento', size: 'Tamanho', shape: 'Formato',
+  color: 'Cor', species: 'Espécie (manchas)', grassDensity: 'Grama · densidade', grassHeight: 'Grama · altura',
+};
+const OVERLAYS = { 'nenhum': 'nenhum', 'terreno': 'terreno', ...Object.fromEntries(Object.entries(FIELD_LABELS).map(([k, v]) => [v, k])) };
+const stats = { fps: 0 };
+let gui;
+
+function addField(folder, f, onChange, name) {
+  const fo = folder.addFolder(name);
+  fo.add(f, 'seed', 0, 999, 1).name('semente');
+  fo.add(f, 'freq', .003, .3, .001).name('frequência');
+  fo.add(f, 'octaves', 1, 6, 1).name('oitavas');
+  fo.add(f, 'lacunarity', 1.2, 4, .05).name('lacunaridade');
+  fo.add(f, 'gain', .1, .9, .01).name('ganho');
+  fo.add(f, 'contrast', .2, 5, .05).name('contraste');
+  fo.add(f, 'bias', -.6, .6, .01).name('viés');
+  fo.add(f, 'ox', -200, 200, .5).name('deslocar X');
+  fo.add(f, 'oz', -200, 200, .5).name('deslocar Z');
+  fo.add(f, 'invert').name('inverter');
+  fo.onChange(onChange);
+  fo.close();
+  return fo;
+}
+const markTrees = () => { dirty.trees = true; dirty.grass = 'all'; if (view.overlay !== 'nenhum') dirty.colors = true; };
+const markVariants = () => { dirty.variants = performance.now(); dirty.trees = true; dirty.grass = 'all'; };
+
+function buildGui() {
+  gui?.destroy();
+  gui = new GUI({ title: 'Debug · vegetação', width: 300 });
+
+  const fv = gui.addFolder('Ver');
+  fv.add(view, 'overlay', OVERLAYS).name('campo no terreno').onChange(v => { world.overlay = v; dirty.colors = true; });
+  fv.add(view, 'showTrees').name('mostrar árvores').onChange(v => world.treeGroup.visible = v);
+  fv.add(view, 'showGrass').name('mostrar grama').onChange(v => world.grassGroup.visible = v);
+  fv.add(view, 'iso').name('câmera isométrica').onChange(v => { camera = v ? ortho : persp; makeControls(); resize(); });
+  fv.add(view, 'shadows').name('sombras').onChange(v => { renderer.shadowMap.enabled = v; scene.traverse(o => o.material && (o.material.needsUpdate = true)); });
+  fv.add(view, 'fog').name('névoa').onChange(applyLook);
+  fv.add(view, 'autosave').name('salvar no navegador');
+
+  const fm = gui.addFolder('Mundo');
+  fm.add(P, 'seed', 0, 99999, 1).name('semente geral').onChange(markVariants);
+  fm.add(P, 'size', [64, 96, 128, 160]).name('tamanho').onChange(v => { world.setSize(+v); world.fillAll('arvores'); world.fillAll('grama'); placeCamera(); applyLook(); markTrees(); });
+  fm.add(P.terrain, 'amp', 0, 16, .5).name('altura do relevo').onChange(() => dirty.terrain = true);
+  fm.add(P.terrain, 'step', .25, 2, .25).name('degrau').onChange(() => dirty.terrain = true);
+  addField(fm, P.terrain.field, () => dirty.terrain = true, 'Ruído do relevo');
+  fm.close();
+
+  const ft = gui.addFolder('Árvores · distribuição');
+  ft.add(P.trees, 'spacingMin', .6, 6, .1).name('espaçamento mín').onChange(markTrees);
+  ft.add(P.trees, 'spacingMax', .8, 12, .1).name('espaçamento máx').onChange(markTrees);
+  ft.add(P.trees, 'densityCut', 0, 1, .01).name('corte de densidade').onChange(markTrees);
+  ft.add(P.trees, 'densityInfluence', 0, 1, .01).name('peso do ruído').onChange(markTrees);
+  ft.add(P.trees, 'maxSlope', .25, 8, .25).name('declive máx').onChange(markTrees);
+  ft.add(P.trees, 'sizeMin', .2, 2, .05).name('tamanho mín').onChange(markTrees);
+  ft.add(P.trees, 'sizeMax', .3, 3, .05).name('tamanho máx').onChange(markTrees);
+  ft.add(P.trees, 'sizeJitter', 0, 1, .01).name('acaso no tamanho').onChange(markTrees);
+  ft.add(P.trees, 'shapeBuckets', 1, 8, 1).name('formatos por espécie').onChange(markVariants);
+  ft.add(P.trees, 'variants', 1, 6, 1).name('variantes por formato').onChange(markTrees);
+  ft.add(P.trees, 'shapeJitter', 0, 1, .01).name('acaso no formato').onChange(markTrees);
+  const fc = ft.addFolder('Cor das folhas');
+  fc.add(P.trees, 'hueRange', 0, .2, .005).name('matiz ±').onChange(markTrees);
+  fc.add(P.trees, 'satRange', 0, .6, .01).name('saturação ±').onChange(markTrees);
+  fc.add(P.trees, 'valRange', 0, .6, .01).name('brilho ±').onChange(markTrees);
+  fc.add(P.trees, 'colorJitter', 0, 1, .01).name('acaso na cor').onChange(markTrees);
+  const fx = ft.addFolder('Mistura de espécies');
+  for (const k of SPECIES_KEYS) fx.add(P.trees.mix, k, 0, 2, .05).name(SPECIES[k].label).onChange(markTrees);
+  fx.add(P.trees, 'speciesJitter', 0, 1, .01).name('acaso na espécie').onChange(markTrees);
+
+  const fn = gui.addFolder('Ruído Perlin (campos)');
+  for (const [k, label] of Object.entries(FIELD_LABELS)) {
+    const grass = k.startsWith('grass');
+    addField(fn, P.fields[k], grass ? () => dirty.grass = 'all' : markTrees, label);
+  }
+  fn.close();
+
+  const fs = gui.addFolder('Espécies · formato');
+  const PNAMES = { height: 'altura', trunkW: 'tronco (voxels)', canopy: 'copa', branches: 'galhos', flat: 'achatamento', holes: 'buracos', lean: 'inclinação', trunkFrac: 'altura do tronco', tiers: 'andares', clear: 'tronco livre', blobs: 'tufos', flowers: 'flores' };
+  for (const k of SPECIES_KEYS) {
+    const f = fs.addFolder(SPECIES[k].label);
+    for (const [pk, v] of Object.entries(P.species[k])) {
+      if (!Array.isArray(v)) continue;
+      const max = { height: 14, trunkW: 4, canopy: 5, branches: 12, flat: 3, holes: .8, lean: 1, trunkFrac: .9, tiers: 8, clear: .6, blobs: 5, flowers: .5 }[pk] ?? 5;
+      const step = ['trunkW', 'branches', 'tiers', 'blobs'].includes(pk) ? 1 : .01;
+      f.add(v, '0', 0, max, step).name((PNAMES[pk] || pk) + ' mín');
+      f.add(v, '1', 0, max, step).name((PNAMES[pk] || pk) + ' máx');
+    }
+    f.onChange(markVariants);
+    f.close();
+  }
+  fs.close();
+
+  const fg = gui.addFolder('Grama');
+  fg.add(P.grass, 'density', 1, 64, 1).name('lâminas por m²').onChange(() => dirty.grass = 'all');
+  fg.add(P.grass, 'heightMin', .05, 1.5, .01).name('altura mín').onChange(() => dirty.grass = 'all');
+  fg.add(P.grass, 'heightMax', .1, 2.5, .01).name('altura máx').onChange(() => dirty.grass = 'all');
+  fg.add(P.grass, 'noiseInfluence', 0, 1, .01).name('peso do ruído').onChange(() => dirty.grass = 'all');
+  fg.add(P.grass, 'lean', 0, 1.2, .01).name('inclinação').onChange(() => dirty.grass = 'all');
+  fg.add(P.grass, 'width', .02, .2, .005).name('largura').onChange(() => dirty.grass = 'all');
+  fg.add(P.grass, 'style', ['voxel', 'lâmina']).name('estilo').onChange(() => dirty.grass = 'all');
+  fg.add(P.grass, 'underTrees').name('grama sob a copa').onChange(() => dirty.grass = 'all');
+  fg.close();
+
+  const fw = gui.addFolder('Vento');
+  fw.add(P.wind, 'strength', 0, 2, .01).name('força');
+  fw.add(P.wind, 'freq', 0, 5, .05).name('frequência');
+  fw.add(P.wind, 'dir', 0, 360, 1).name('direção °');
+  fw.add(P.wind, 'gust', 0, 1, .01).name('rajadas');
+  fw.close();
+
+  const fl = gui.addFolder('Luz');
+  fl.add(view, 'sunAz', 0, 360, 1).name('sol · azimute').onChange(applyLook);
+  fl.add(view, 'sunEl', 5, 89, 1).name('sol · elevação').onChange(applyLook);
+  fl.add(view, 'sunI', 0, 5, .05).name('sol · força').onChange(applyLook);
+  fl.add(view, 'hemiI', 0, 3, .05).name('ambiente').onChange(applyLook);
+  fl.close();
+
+  const fe = gui.addFolder('Estilo (design document)');
+  const st = { preset: P.styleName in STYLES ? P.styleName : 'Outono ICQR' };
+  fe.add(st, 'preset', Object.keys(STYLES)).name('predefinido').onChange(v => { world.setStyle(STYLES[v], v); applyLook(); buildGui(); markTrees(); });
+  fe.add(P.style, 'voxel', .1, .5, .025).name('tamanho do voxel').onChange(markVariants);
+  fe.add(P.style, 'snow', 0, 1, .01).name('neve').onChange(() => { markVariants(); dirty.colors = true; });
+  const fsc = fe.addFolder('Céu e terreno');
+  for (const k of ['sky', 'fog', 'sun', 'hemiSky', 'hemiGround']) fsc.addColor(P.style, k).onChange(applyLook);
+  for (const k of Object.keys(P.style.terrain)) fsc.addColor(P.style.terrain, k).name('terreno · ' + k).onChange(() => dirty.colors = true);
+  fsc.addColor(P.style.grass, 'base').name('grama · base').onChange(() => dirty.grass = 'all');
+  fsc.addColor(P.style.grass, 'tip').name('grama · ponta').onChange(() => dirty.grass = 'all');
+  fsc.close();
+  for (const k of SPECIES_KEYS) {
+    const sp = P.style.species[k], f = fe.addFolder('Paleta · ' + SPECIES[k].label);
+    sp.leaves.forEach((_, i) => f.addColor(sp.leaves, String(i)).name('folha ' + (i + 1)));
+    f.addColor(sp, 'wood').name('madeira');
+    if (sp.wood2) f.addColor(sp, 'wood2').name('listras');
+    sp.flowers?.forEach((_, i) => f.addColor(sp.flowers, String(i)).name('flor ' + (i + 1)));
+    f.onFinishChange(markVariants);
+    f.close();
+  }
+  fe.add({ abrir: () => $('#fileStyle').click() }, 'abrir').name('Abrir estilo .json…');
+  fe.add({ salvar: () => download('estilo-vegetacao.json', JSON.stringify(P.style, null, 2), 'application/json') }, 'salvar').name('Salvar estilo .json');
+  fe.close();
+
+  const fa = gui.addFolder('Arquivo e exportação');
+  fa.add({ f: () => { world.fillAll('arvores'); markTrees(); dirty.colors = true; } }, 'f').name('Preencher tudo com árvores');
+  fa.add({ f: () => { world.fillAll('grama'); dirty.grass = 'all'; dirty.colors = true; } }, 'f').name('Preencher tudo com grama');
+  fa.add({ f: () => { world.fillAll('arvores', 0); world.fillAll('grama', 0); markTrees(); dirty.colors = true; } }, 'f').name('Limpar tudo');
+  fa.add({ f: () => download('floresta.json', JSON.stringify(world.toJSON()), 'application/json') }, 'f').name('Salvar projeto .json');
+  fa.add({ f: () => $('#fileProject').click() }, 'f').name('Abrir projeto .json…');
+  const ex = { species: 'carvalho', formato: .5, variante: 0, comCor: false };
+  const fga = fa.addFolder('GLB de uma árvore');
+  fga.add(ex, 'species', Object.fromEntries(SPECIES_KEYS.map(k => [SPECIES[k].label, k]))).name('espécie');
+  fga.add(ex, 'formato', 0, 1, .01);
+  fga.add(ex, 'variante', 0, 50, 1);
+  fga.add({ f: () => exportOneTree(ex) }, 'f').name('Baixar árvore .glb');
+  fa.add({ f: exportLibrary }, 'f').name('Biblioteca de variantes .glb');
+  fa.add({ f: exportScene }, 'f').name('Cena inteira .glb (sem grama)');
+
+  const fst = gui.addFolder('Estatísticas');
+  fst.add(world.stats, 'arvores').name('árvores').listen().disable();
+  fst.add(world.stats, 'grama').name('lâminas').listen().disable();
+  fst.add(world.stats, 'variantes').name('variantes prontas').listen().disable();
+  fst.add(world.stats, 'fila').name('na fila').listen().disable();
+  fst.add(world.stats, 'genMs').name('ms última variante').listen().disable();
+  fst.add(stats, 'fps').listen().disable();
+
+  if (innerWidth < 760) gui.close();
+}
+
+/* ---------- aparência ---------- */
+function applyLook() {
+  const S = P.style;
+  scene.background = new THREE.Color(S.sky);
+  scene.fog = view.fog ? new THREE.Fog(S.fog, P.size * .9, P.size * 2.6) : null;
+  hemi.color.set(S.hemiSky); hemi.groundColor.set(S.hemiGround); hemi.intensity = view.hemiI;
+  sun.color.set(S.sun); sun.intensity = view.sunI;
+  const az = view.sunAz * Math.PI / 180, el = view.sunEl * Math.PI / 180, D = P.size;
+  sun.position.set(Math.cos(el) * Math.cos(az) * D, Math.sin(el) * D, Math.cos(el) * Math.sin(az) * D);
+  sun.shadow.camera.up.set(0, 0, -1);
+  const sh = sun.shadow.camera, e = P.size * .75;
+  sh.left = sh.bottom = -e; sh.right = sh.top = e; sh.near = 1; sh.far = D * 3;
+  sh.updateProjectionMatrix();
+}
+
+/* ---------- arquivos ---------- */
+function download(name, data, type) {
+  const url = URL.createObjectURL(data instanceof Blob ? data : new Blob([data], { type }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+function exportGLB(obj, name) {
+  busy('Gerando ' + name + '…');
+  new GLTFExporter().parse(obj, glb => { download(name, new Blob([glb], { type: 'model/gltf-binary' })); busy(''); },
+    err => { console.error(err); busy('Falhou: ' + err.message); }, { binary: true });
+}
+function exportOneTree(ex) {
+  const tree = genTreeVoxels(ex.species, ex.formato, variantSeed(ex.species, 'x' + ex.formato, ex.variante, P.seed), P.style, P.species);
+  const geo = treeGeometry(meshVoxels(tree, P.style.voxel));
+  exportGLB(bakedTreeMesh(geo, null, ex.species), `${ex.species}-f${Math.round(ex.formato * 100)}-v${ex.variante}.glb`);
+}
+function exportLibrary() {
+  const g = new THREE.Group(); g.name = 'vegetacao_voxel';
+  let x = 0;
+  for (const [key, v] of world.variants) {
+    if (!v.ready) continue;
+    const m = bakedTreeMesh(v.geo, null, key.replace(/:/g, '_'));
+    m.position.x = x; x += 7;
+    g.add(m);
+  }
+  if (!g.children.length) return busy('Nenhuma variante pronta ainda.');
+  exportGLB(g, 'biblioteca-vegetacao.glb');
+}
+function exportScene() {
+  const g = new THREE.Group(); g.name = 'floresta';
+  const terrain = new THREE.Mesh(world.terrainMesh.geometry.clone(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }));
+  terrain.name = 'terreno'; g.add(terrain);
+  const bySpecies = new Map();
+  let verts = 0;
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+  for (const t of world.trees) {
+    const v = world.variants.get(t.key);
+    if (!v?.ready) continue;
+    verts += v.geo.attributes.position.count;
+    if (verts > 6e6) { busy('Cena grande demais para um GLB só (> 6 mi de vértices). Use biblioteca + projeto .json.'); return; }
+    const geo = bakedTreeMesh(v.geo, t.tint, '').geometry;
+    geo.applyMatrix4(m.compose(new THREE.Vector3(t.x, t.y, t.z), q.setFromAxisAngle(up, t.rot), new THREE.Vector3().setScalar(t.scale)));
+    if (!bySpecies.has(t.species)) bySpecies.set(t.species, []);
+    bySpecies.get(t.species).push(geo);
+  }
+  for (const [sp, list] of bySpecies) {
+    const mesh = new THREE.Mesh(mergeGeometries(list), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }));
+    mesh.name = sp; g.add(mesh);
+    list.forEach(x => x.dispose());
+  }
+  exportGLB(g, 'floresta.glb');
+}
+function readJSON(input, cb) {
+  input.addEventListener('change', async () => {
+    const f = input.files[0]; input.value = '';
+    if (!f) return;
+    try { cb(JSON.parse(await f.text())); } catch (e) { busy('Arquivo inválido: ' + e.message); }
+  });
+}
+readJSON($('#fileProject'), j => {
+  if (j.format !== 'veg-forest') return busy('Não é um projeto de floresta.');
+  const fresh = defaultProject();
+  Object.assign(world.P, { ...fresh, ...j, baked: undefined });
+  P = world.P;
+  world.setSize(P.size, j.masks);
+  world.invalidateVariants();
+  placeCamera(); applyLook(); buildGui(); markTrees(); dirty.colors = true;
+});
+readJSON($('#fileStyle'), j => {
+  if (!j.species || !j.terrain) return busy('Estilo sem "species" ou "terrain".');
+  world.setStyle({ ...STYLES['Outono ICQR'], ...j }, 'personalizado');
+  applyLook(); buildGui(); markTrees();
+});
+let busyT = 0;
+function busy(msg) { $('#busy').textContent = msg; clearTimeout(busyT); if (msg && !msg.endsWith('…')) busyT = setTimeout(() => $('#busy').textContent = '', 5000); }
+
+/* ---------- laço ---------- */
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false);
+  persp.aspect = w / h; persp.updateProjectionMatrix();
+  const s = P.size * .62;
+  ortho.left = -s * w / h; ortho.right = s * w / h; ortho.top = s; ortho.bottom = -s; ortho.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+
+let frames = 0, fpsT = performance.now();
+function frame(now) {
+  const t = now / 1000;
+  if (dirty.terrain) { world.rebuildTerrain(); dirty.terrain = false; dirty.trees = true; dirty.grass = 'all'; }
+  if (dirty.variants && now - dirty.variants > 250) { world.invalidateVariants(); dirty.variants = 0; }
+  if (dirty.trees) { world.rescatterTrees(); dirty.trees = false; dirty.save = now; }
+  if (dirty.grass) { world.rebuildGrass(dirty.grass === 'all' ? null : dirty.grass); dirty.grass = null; }
+  if (dirty.colors) { world.recolorTerrain(); dirty.colors = false; }
+  if (dirty.save && view.autosave && now - dirty.save > 1500) {
+    store.set('floresta-voxel:projeto', JSON.stringify({ ...world.P, masks: world.packMasks() }));
+    dirty.save = 0;
+  }
+  world.U.uPush.value.set(cursor.x, cursor.z, Math.max(1, brush.radius * .5), cursor.on && brush.tool !== 'camera' ? .5 : 0);
+  world.update(t);
+  if (ring.visible) updateRing();
+  if (world.stats.fila) busy(`Gerando variantes… ${world.stats.fila} na fila`);
+  else if ($('#busy').textContent.startsWith('Gerando variantes')) busy('');
+  controls.update();
+  renderer.render(scene, camera);
+  frames++;
+  if (now - fpsT > 500) {
+    stats.fps = Math.round(frames * 1000 / (now - fpsT)); frames = 0; fpsT = now;
+    $('#stats').textContent = `${world.stats.arvores} árvores · ${world.stats.grama.toLocaleString('pt-BR')} lâminas · ${stats.fps} fps`;
+  }
+  requestAnimationFrame(frame);
+}
+
+buildGui();
+applyLook();
+resize();
+setTool('arvores');
+world.rescatterTrees();
+world.rebuildGrass();
+requestAnimationFrame(frame);
+window.__world = world; // para depurar no console
+</script>
+</body>
+</html>
