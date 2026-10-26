@@ -99,6 +99,9 @@ function factors(species, eco, k) {
   return F[0] * F[1] * F[2] * F[3];
 }
 export const suitability = (species, eco, k) => factors(species, eco, k);
+// qualidade do lugar para viver (água, solo, encosta), sem a luz: a própria copa não pune a árvore.
+// Competição por luz entre árvores fica para o Marco 2.
+export const siteQuality = (species, eco, k) => (factors(species, eco, k), F[0] * F[2] * F[3]);
 export function suitabilityGrid(species, eco) {
   const out = new Float32Array(eco.size * eco.size);
   for (let k = 0; k < out.length; k++) out[k] = factors(species, eco, k);

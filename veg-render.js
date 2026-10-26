@@ -7,8 +7,8 @@ import {
   SPECIES_KEYS, STYLES, defaultProject, migrateProject, sampleField, genTreeVoxels, colorTree, meshVoxels,
   scatterTrees, scatterGrass, bucketT, variantSeed, hexToRgb, srgbToLinear, shiftHsl, hash3, clamp01, lerp,
 } from './veg-core.js';
-import { seasonAt } from './veg-core.js';
-import { SOILS, computeEco, suitabilityGrid } from './veg-eco.js';
+import { seasonAt, lifeOf, stageKey, deadVariant } from './veg-core.js';
+import { SOILS, computeEco, suitabilityGrid, siteQuality } from './veg-eco.js';
 
 // o projeto padrão e a migração moram no núcleo (sem three), para Node/Godot lerem igual
 export { defaultProject, migrateProject };
@@ -368,16 +368,18 @@ export class VegWorld {
     return v;
   }
   buildVariant(key) {
-    const [species, b, vi] = key.split(':');
+    const [species, b, vi, dead] = key.split(':');
     const t0 = performance.now();
     const tree = genTreeVoxels(species, bucketT(+b, this.P.trees.shapeBuckets), variantSeed(species, b, vi, this.P.seed), this.P.style, this.P.species);
-    const m = meshVoxels(tree, this.P.style.voxel);
+    const m = meshVoxels(dead ? deadVariant(tree, dead, this.P.style) : tree, this.P.style.voxel);
     this.stats.genMs = Math.round(performance.now() - t0);
-    m.tree = tree; // guardado para recolorir na troca de estação sem refazer a geometria
+    // árvore viva guardada para recolorir na troca de estação sem refazer a geometria; morta/toco são refeitas (poucas)
+    m.tree = dead ? null : tree;
     return m;
   }
-  rescatterTrees() {
-    const P = this.P;
+  // sproutTick: dia em que as árvores que surgirem agora brotaram (modo Ecossistema, após pintar)
+  rescatterTrees({ sproutTick = null } = {}) {
+    const P = this.P, prev = new Set(this.trees.map(t => t.id));
     this.trees = scatterTrees({
       size: P.size, seed: P.seed,
       maskAt: (x, z) => this.sampleMask(this.treeMask, x, z),
@@ -386,12 +388,32 @@ export class VegWorld {
       slopeAt: (x, z) => this.slopeAt(x, z),
       fields: P.fields, p: P.trees,
     });
+    const plants = P.ecology.plants, ids = new Set();
+    for (const t of this.trees) {
+      ids.add(t.id);
+      if (sproutTick != null && prev.size && !prev.has(t.id) && !(t.id in plants)) plants[t.id] = sproutTick;
+    }
+    for (const id in plants) if (!ids.has(id)) delete plants[id]; // apagadas não guardam idade
     this.eco = null;
     this.applyTrees();
   }
+  // estágio de vida (modo Ecossistema): tamanho desenhado e variante (viva, morta, toco) por árvore
+  updateLife() {
+    const E = this.P.ecology, on = E.mode === 'ecossistema', eco = on ? this.getEco() : null;
+    for (const t of this.trees) {
+      if (!on) { t.life = null; t.suit = 1; t.drawScale = t.scale; t.vkey = t.key; continue; }
+      const k = this.ecoIndex(t.x, t.z);
+      t.suit = k < 0 ? 1 : siteQuality(t.species, eco, k);
+      t.life = lifeOf(t, E.epoch == null ? { ...E, epoch: E.tick } : E, this.P.seed, t.suit);
+      t.drawScale = t.scale * t.life.scale;
+      t.vkey = t.key + stageKey(t.life.stage);
+    }
+  }
+  stageSnapshot() { return new Map(this.trees.map(t => [t.id, t.life?.stage || 'adulta'])); }
   applyTrees() {
+    this.updateLife();
     const groups = new Map();
-    for (const t of this.trees) { if (!groups.has(t.key)) groups.set(t.key, []); groups.get(t.key).push(t); }
+    for (const t of this.trees) { if (!groups.has(t.vkey)) groups.set(t.vkey, []); groups.get(t.vkey).push(t); }
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), s = new THREE.Vector3(), p = new THREE.Vector3();
     let shown = 0;
     for (const [key, v] of this.variants) if (!groups.has(key) && v.mesh) v.mesh.count = 0;
@@ -410,9 +432,10 @@ export class VegWorld {
         this.treeGroup.add(v.mesh);
       }
       list.forEach((t, i) => {
-        q.setFromAxisAngle(up, t.rot); s.setScalar(t.scale); p.set(t.x, t.y, t.z);
+        q.setFromAxisAngle(up, t.rot); s.setScalar(t.drawScale); p.set(t.x, t.y, t.z);
         v.mesh.setMatrixAt(i, m.compose(p, q, s));
-        v.tint.setXYZ(i, t.tint[0], t.tint[1], t.tint[2]);
+        const old = t.life?.stage === 'velha'; // copa velha mais apagada
+        v.tint.setXYZ(i, t.tint[0], t.tint[1] - (old ? .18 : 0), t.tint[2] - (old ? .08 : 0));
       });
       v.mesh.count = list.length;
       v.mesh.instanceMatrix.needsUpdate = true;
@@ -445,7 +468,7 @@ export class VegWorld {
     const blocked = (x, z) => {
       for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
         const l = trunks.get((Math.floor(x) + dx) + ',' + (Math.floor(z) + dz));
-        if (l) for (const t of l) if ((t.x - x) ** 2 + (t.z - z) ** 2 < (.35 * t.scale) ** 2) return true;
+        if (l) for (const t of l) if ((t.x - x) ** 2 + (t.z - z) ** 2 < (.35 * (t.drawScale ?? t.scale)) ** 2) return true;
       }
       return false;
     };
@@ -530,9 +553,10 @@ export class VegWorld {
   }
   recolorVariant(key) {
     const v = this.variants.get(key);
-    if (!v?.ready || !v.tree) return;
-    colorTree(v.tree, this.P.style);
-    const m = meshVoxels(v.tree, this.P.style.voxel);
+    if (!v?.ready) return;
+    let m;
+    if (v.tree) { colorTree(v.tree, this.P.style); m = meshVoxels(v.tree, this.P.style.voxel); }
+    else m = this.buildVariant(key);
     const col = v.geo.attributes.color, veg = v.geo.attributes.aVeg;
     // a malha não muda (mesma ocupação), só cor e o sinal de folha; se mudar, é bug: refaz do zero
     if (m.color.length !== col.array.length) { v.geo.dispose(); v.geo = treeGeometry(m); this.rebindVariant(v); return; }
@@ -566,7 +590,7 @@ export class VegWorld {
       // árvores já distribuídas: o que um motor (Godot, outro jogo) precisa para posicionar
       baked: {
         voxel: this.P.style.voxel,
-        trees: this.trees.map(t => ({ s: t.species, v: t.key, p: [r3(t.x), r3(t.y), r3(t.z)], r: r3(t.rot), k: r3(t.scale), tint: t.tint.map(r3) })),
+        trees: this.trees.map(t => ({ s: t.species, v: t.vkey ?? t.key, p: [r3(t.x), r3(t.y), r3(t.z)], r: r3(t.rot), k: r3(t.drawScale ?? t.scale), tint: t.tint.map(r3), ...(t.life ? { stage: t.life.stage } : {}) })),
       },
     };
   }

@@ -280,7 +280,8 @@ export function defaultProject() {
     wind: { strength: .45, freq: 1.2, dir: 35, gust: .6 },
     // tick = dias desde o início; começa no 1º dia do outono, combinando com o estilo padrão.
     // seasonal: o estilo segue a estação (seasonStyle) em vez de ficar fixo.
-    ecology: { mode: 'criativo', tick: 24, dayTime: .42, seasonLen: 12, seasonal: true, plants: {} },
+    // epoch: dia em que o modo Ecossistema começou (idade das árvores sem registro em plants)
+    ecology: { mode: 'criativo', tick: 24, dayTime: .42, seasonLen: 12, seasonal: true, epoch: null, plants: {} },
     photo: { frame: 'nenhuma', showMeta: true },
     masks: null, // preenchido ao salvar
   };
@@ -609,6 +610,7 @@ export function scatterTrees(cfg) {
     const shapeBucket = Math.min(bucketN - 1, Math.floor(shapeV * bucketN));
     const variant = Math.floor(hash3(c.i, c.j, seed + 8) * Math.max(1, p.variants | 0));
     const t = {
+      id: c.i + ',' + c.j,
       species, x: c.x, z: c.z, y: heightAt(c.x, c.z), r,
       scale: lerp(p.sizeMin, p.sizeMax, sizeV),
       rot: hash3(c.i, c.j, seed + 9) * Math.PI * 2,
@@ -655,4 +657,65 @@ export function scatterGrass(cfg) {
     });
   }
   return blades;
+}
+
+/* ---------- ciclo de vida (GDD §5.3) ----------
+   Estágios discretos derivados do tempo: nada é simulado por quadro. Dias; 1 ano = 4 × seasonLen.
+   Vida da árvore = média da espécie × acaso do id × adequação do lugar; depois de morta (12 dias)
+   e toco (48), rebrota no mesmo lugar e o ciclo recomeça (age % C), sempre de forma determinística. */
+export const STAGES = ['broto', 'jovem', 'adulta', 'velha', 'morta', 'toco'];
+export const STAGE_LABELS = { broto: 'broto', jovem: 'jovem', adulta: 'adulta', velha: 'velha', morta: 'morta em pé', toco: 'toco' };
+// ~10 anos para o carvalho (1 ano = 48 dias): a floresta muda devagar, alguns por cento por estação
+export const LIFE = { carvalho: 480, betula: 280, cerejeira: 320, pinheiro: 560, arbusto: 180 };
+const DEAD_DAYS = 12, REGROW_GAP = 60; // toco dura 48 dias (REGROW_GAP − DEAD_DAYS)
+
+export function lifeOf(tree, eco, seed, suit = 1) {
+  const su = clamp01(suit), hid = hashStr(tree.id);
+  const h1 = hash3(hid, seed | 0, 1), h2 = hash3(hid, seed | 0, 2);
+  const lifespan = (LIFE[tree.species] ?? 400) * (.75 + .5 * h1) * (.5 + .5 * su);
+  const C = lifespan + REGROW_GAP;
+  const plants = eco.plants || {}, implicit = plants[tree.id] === undefined;
+  const lo = Math.min(30, .8 * lifespan); // vida muito curta: a idade inicial ainda cai em adulta/velha
+  const born = implicit ? eco.epoch - (lo + h2 * (.85 * lifespan - lo)) : plants[tree.id];
+  const age = Math.max(0, eco.tick - born), a = age % C;
+  const aEnd = .8 * lifespan, jEnd = Math.min(30, 6 + (aEnd - 6) * .5);
+  const live = .75 + .25 * su;
+  let stage, scale;
+  if (a < 6) { stage = 'broto'; scale = lerp(.15, .3, a / 6) * live; }
+  else if (a < jEnd) { stage = 'jovem'; scale = lerp(.35, .8, (a - 6) / (jEnd - 6)) * live; }
+  else if (a < aEnd) { stage = 'adulta'; scale = lerp(.85, 1, (a - jEnd) / (aEnd - jEnd)) * live; }
+  else if (a < lifespan) { stage = 'velha'; scale = 1.05 * live; }
+  else if (a < lifespan + DEAD_DAYS) { stage = 'morta'; scale = 1; }
+  else { stage = 'toco'; scale = 1; }
+  return { stage, age, cycleAge: a, lifespan, born, implicit, scale };
+}
+// sufixo da chave de variante: vivos usam a chave normal
+export const stageKey = stage => stage === 'morta' ? ':morta' : stage === 'toco' ? ':toco' : '';
+
+/* Árvore morta em pé / toco a partir de uma árvore gerada: só madeira (tipo 1 original),
+   sem folha (veg leaf = 0 → sem cor sazonal nem tremulação). Não muta a original. */
+export function deadVariant(tree, kind, style) {
+  const src = tree.grid, kinds = tree.kinds, W = tree.trunkW;
+  const g = voxelGrid(), cut = Math.max(2, Math.round(.7 / style.voxel));
+  const cx = -Math.floor(W / 2) + W / 2 - .5; // eixo do tronco, em índices de célula
+  const keep = [];
+  let i = 0;
+  for (const v of src.map.values()) {
+    const t = kinds ? kinds[i] : v.type; i++;
+    if (t !== 1) continue;
+    if (kind === 'toco' && (v.y >= cut || Math.hypot(v.x - cx, v.z - cx) > W + 1)) continue;
+    keep.push(v);
+  }
+  let top = 0;
+  for (const v of keep) top = Math.max(top, v.y);
+  for (const v of keep) {
+    const n = hash3(v.x, v.y, (tree.seed | 0) + 77) - .5;
+    const [r, gg, b] = v.col || [.3, .22, .15], l = (r + gg + b) / 3;
+    const gray = [lerp(r, l, .55), lerp(gg, l, .55), lerp(b, l, .55)]; // desbotada
+    const col = shiftHsl(gray, 0, 0, n * .08 - .02 + (kind === 'toco' && v.y === top ? .1 : 0)); // topo do toco: anéis mais claros
+    g.put(v.x, v.y, v.z, 1, col, true);
+  }
+  let maxY = 0;
+  for (const v of g.map.values()) maxY = Math.max(maxY, v.y);
+  return { grid: g, height: g.map.size ? maxY + 1 : 1, trunkW: W, seed: tree.seed, speciesKey: tree.speciesKey, flowerP: 0, stripes: false, kinds: Uint8Array.from(g.map.values(), () => 1), dead: kind };
 }

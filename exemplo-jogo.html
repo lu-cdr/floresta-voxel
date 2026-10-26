@@ -123,7 +123,7 @@ function frame(now) {
   let nx = Math.max(-lim, Math.min(lim, p.x + vel.x * dt)), nz = Math.max(-lim, Math.min(lim, p.z + vel.y * dt));
   // colisão com troncos (círculo pelo tamanho da árvore) e com degraus altos
   for (const t of world.trees) {
-    const r = .35 * t.scale + .3, dx = nx - t.x, dz = nz - t.z, d = Math.hypot(dx, dz);
+    const r = .35 * (t.drawScale ?? t.scale) + .3, dx = nx - t.x, dz = nz - t.z, d = Math.hypot(dx, dz);
     if (d < r && d > 1e-4) { nx = t.x + dx / d * r; nz = t.z + dz / d * r; }
   }
   if (world.heightAt(nx, nz) - p.y <= .6) { p.x = nx; p.z = nz; }
