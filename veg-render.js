@@ -4,42 +4,12 @@
    usam a mesma classe VegWorld; o "projeto" (JSON) é o que o editor exporta. */
 import * as THREE from 'three';
 import {
-  SPECIES, SPECIES_KEYS, STYLES, defaultField, sampleField, genTreeVoxels, meshVoxels,
+  SPECIES_KEYS, STYLES, defaultProject, migrateProject, sampleField, genTreeVoxels, meshVoxels,
   scatterTrees, scatterGrass, bucketT, variantSeed, hexToRgb, srgbToLinear, shiftHsl, hash3, clamp01, lerp,
 } from './veg-core.js';
 
-/* ---------- projeto padrão ---------- */
-export function defaultProject() {
-  return {
-    format: 'veg-forest', version: 1,
-    size: 96, seed: 1234,
-    style: structuredClone(STYLES['Outono ICQR']),
-    styleName: 'Outono ICQR',
-    terrain: { field: defaultField(11, .022, { octaves: 4, contrast: 1.2 }), amp: 5, step: .5 },
-    fields: {
-      density: defaultField(21, .035),
-      spacing: defaultField(31, .05),
-      size: defaultField(41, .06),
-      shape: defaultField(51, .08),
-      color: defaultField(61, .045),
-      species: defaultField(71, .03, { octaves: 2, contrast: 1.8 }),
-      grassDensity: defaultField(81, .07),
-      grassHeight: defaultField(91, .09),
-    },
-    trees: {
-      spacingMin: 1.6, spacingMax: 4.2, densityInfluence: .85, densityCut: .45,
-      sizeMin: .75, sizeMax: 1.3, sizeJitter: .25,
-      shapeBuckets: 4, variants: 3, shapeJitter: .2,
-      hueRange: .035, satRange: .15, valRange: .14, colorJitter: .5,
-      speciesJitter: .15, maxSlope: 1.6,
-      mix: { carvalho: 1, betula: .6, cerejeira: .35, pinheiro: .8, arbusto: .7 },
-    },
-    species: structuredClone(SPECIES),
-    grass: { density: 16, heightMin: .22, heightMax: .75, noiseInfluence: .7, lean: .5, width: .07, style: 'voxel', underTrees: true },
-    wind: { strength: .45, freq: 1.2, dir: 35, gust: .6 },
-    masks: null, // preenchido ao salvar
-  };
-}
+// o projeto padrão e a migração moram no núcleo (sem three), para Node/Godot lerem igual
+export { defaultProject, migrateProject };
 
 /* ---------- shader de vegetação: vento, empurrão e variação de cor ---------- */
 export function makeUniforms() {

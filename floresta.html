@@ -145,7 +145,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import GUI from 'lil-gui';
-import { VegWorld, defaultProject, treeGeometry, bakedTreeMesh } from './veg-render.js';
+import { VegWorld, defaultProject, migrateProject, treeGeometry, bakedTreeMesh } from './veg-render.js';
 import { SPECIES, SPECIES_KEYS, STYLES, genTreeVoxels, meshVoxels, variantSeed } from './veg-core.js';
 
 const $ = s => document.querySelector(s);
@@ -175,7 +175,7 @@ const view = { showTrees: true, showGrass: true, sunAz: 35, sunEl: 58, sunI: 2.3
 /* ---------- mundo ---------- */
 let project = defaultProject();
 const saved = store.get('floresta-voxel:projeto');
-if (saved) { try { project = { ...project, ...JSON.parse(saved) }; } catch {} }
+if (saved) { try { project = migrateProject(JSON.parse(saved)); } catch (e) { console.warn('Projeto salvo ignorado:', e.message); } }
 const world = new VegWorld(scene, project);
 if (!saved) { world.fillAll('arvores', 1); world.fillAll('grama', 1); }
 let P = world.P;
@@ -568,9 +568,9 @@ function readJSON(input, cb) {
   });
 }
 readJSON($('#fileProject'), j => {
-  if (j.format !== 'veg-forest') return busy('Não é um projeto de floresta.');
-  const fresh = defaultProject();
-  Object.assign(world.P, { ...fresh, ...j, baked: undefined });
+  let next;
+  try { next = migrateProject(j); } catch (e) { return busy(e.message); }
+  Object.assign(world.P, next);
   P = world.P;
   world.setSize(P.size, j.masks);
   world.invalidateVariants();

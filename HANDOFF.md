@@ -19,6 +19,19 @@ florestas inteiras e menu de debug. Detalhes técnicos completos em `README.md`.
 | `floresta.html` | Editor: ferramentas Câmera/Árvores/Grama/Borracha (C, 1, 2, E; `[` `]` raio; Shift apaga), lil-gui 0.19.2 com todos os parâmetros, visualização de campo no terreno, estilos, export (projeto .json, árvore .glb, biblioteca .glb, cena .glb). Autosave em `localStorage['floresta-voxel:projeto']`. `window.__world` para depurar. |
 | `exemplo-jogo.html` | Runtime mínimo: terceira pessoa (WASD/Shift/toque), colisão com troncos, grama abre em volta do jogador, carrega o projeto do editor (mesmo localStorage) ou um .json. |
 | `.claude/launch.json` | Servidor `vegetacao`: `python -m http.server 8767` nesta pasta. |
+| `tests/` | `npm test` (= `node --test "tests/*.test.mjs"`): determinismo do núcleo, localidade do scatter, migração v1→v2. `fixtures/projeto-v1.json` é um projeto salvo no formato antigo. |
+
+## Roadmap em execução
+
+Plano aprovado em 2026-10-26: Incremento 0 (fundação) → Marco 1 do GDD em 7 incrementos (desfazer, estações, solo/umidade, estágios, sub-bosque, modo foto, painel "Criar") → porte Godot → Marcos 2 e 3. Um commit por incremento; parar para aprovação a cada um. Método em `OPUS_ORCHESTRATION.md`.
+
+### Incremento 0 — Fundação (2026-10-26)
+
+1. **Entrega:** repositório git; projeto versionado (`format: 'veg-forest'`, `version: 2`) com `migrateProject()`; editor e runtime abrem projetos antigos pela migração (antes era merge raso, que perderia campos aninhados novos).
+2. **Arquivos:** `defaultProject`, `migrateProject`, `PROJECT_VERSION` agora em `veg-core.js` (re-exportados por `veg-render.js`). v2 adiciona `ecology: { mode, tick, season, dayTime, seasonLen, plants }` e `photo: { frame, showMeta }`, ainda sem uso. Estilo incompleto é completado pelo preset de mesmo nome (`styleName`). `baked` é descartado ao abrir. Versão maior que a suportada → erro legível.
+3. **TIGHT:** Tempo — migração roda só ao carregar (~ms). Integridade — testes de idempotência, de entrada intocada e de v1 sem perda. Game feel — erro de arquivo agora diz o motivo no editor e no runtime. Harmonia — sem mudança visual. Testes — 8 em `npm test`.
+4. **Verificação:** `npm test` 8/8. Navegador (8767): editor sem erros (só o favicon 404, que já existia), 615 árvores / 165 fps; fixture v1 colocada no autosave → recarrega com seed 777, 378 árvores, canto de pinheiros pintado mantido; `exemplo-jogo.html` carrega o mesmo projeto.
+5. **Riscos/continuação:** o jogador do runtime nasce em (0,0) mesmo se houver árvore ali (já era assim). Próximo: Incremento 1, desfazer/refazer.
 
 Abrir: preview `vegetacao` → `http://localhost:8767/floresta.html`.
 

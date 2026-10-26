@@ -181,6 +181,71 @@ export const STYLES = {
   },
 };
 
+/* ---------- projeto (formato "veg-forest") ----------
+   v1: protótipo (terreno, campos, máscaras de árvore/grama/espécie).
+   v2: + ecology (relógio, estações, modo) e photo. Árvores sem entrada em
+   ecology.plants são adultas, então um projeto v1 abre exatamente igual. */
+export const PROJECT_VERSION = 2;
+export function defaultProject() {
+  return {
+    format: 'veg-forest', version: PROJECT_VERSION,
+    size: 96, seed: 1234,
+    style: structuredClone(STYLES['Outono ICQR']),
+    styleName: 'Outono ICQR',
+    terrain: { field: defaultField(11, .022, { octaves: 4, contrast: 1.2 }), amp: 5, step: .5 },
+    fields: {
+      density: defaultField(21, .035),
+      spacing: defaultField(31, .05),
+      size: defaultField(41, .06),
+      shape: defaultField(51, .08),
+      color: defaultField(61, .045),
+      species: defaultField(71, .03, { octaves: 2, contrast: 1.8 }),
+      grassDensity: defaultField(81, .07),
+      grassHeight: defaultField(91, .09),
+    },
+    trees: {
+      spacingMin: 1.6, spacingMax: 4.2, densityInfluence: .85, densityCut: .45,
+      sizeMin: .75, sizeMax: 1.3, sizeJitter: .25,
+      shapeBuckets: 4, variants: 3, shapeJitter: .2,
+      hueRange: .035, satRange: .15, valRange: .14, colorJitter: .5,
+      speciesJitter: .15, maxSlope: 1.6,
+      mix: { carvalho: 1, betula: .6, cerejeira: .35, pinheiro: .8, arbusto: .7 },
+    },
+    species: structuredClone(SPECIES),
+    grass: { density: 16, heightMin: .22, heightMax: .75, noiseInfluence: .7, lean: .5, width: .07, style: 'voxel', underTrees: true },
+    wind: { strength: .45, freq: 1.2, dir: 35, gust: .6 },
+    // estação 2 = outono, combinando com o estilo padrão
+    ecology: { mode: 'criativo', tick: 0, season: 2, dayTime: .42, seasonLen: 12, plants: {} },
+    photo: { frame: 'nenhuma', showMeta: true },
+    masks: null, // preenchido ao salvar
+  };
+}
+
+// completa o que falta em `val` com `def`, recursivamente; arrays e valores de `val` vencem
+const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+function fillDefaults(val, def) {
+  if (!isObj(val) || !isObj(def)) return val === undefined ? structuredClone(def) : val;
+  const out = { ...val };
+  for (const [k, d] of Object.entries(def)) out[k] = fillDefaults(val[k], d);
+  return out;
+}
+
+/* Abre qualquer versão conhecida e devolve um projeto atual completo.
+   Idempotente; não altera o objeto recebido. `baked` é só saída, nunca entrada. */
+export function migrateProject(j) {
+  if (!isObj(j) || j.format !== 'veg-forest') throw new Error('Não é um projeto de floresta.');
+  if ((j.version | 0) > PROJECT_VERSION) throw new Error(`Projeto da versão ${j.version}; este editor lê até a ${PROJECT_VERSION}.`);
+  const src = structuredClone(j);
+  delete src.baked;
+  const def = defaultProject();
+  // estilo incompleto se completa pelo preset de mesmo nome, não sempre pelo padrão
+  if (STYLES[src.styleName]) def.style = structuredClone(STYLES[src.styleName]);
+  const out = fillDefaults(src, def);
+  // v1 → v2: nada a converter, só os campos novos (ecology, photo) vindos dos defaults
+  out.version = PROJECT_VERSION;
+  return out;
+}
+
 /* ---------- voxels de uma árvore ---------- */
 const OFF = 128, SPAN = 256;
 const vkey = (x, y, z) => ((y + 16) * SPAN + (z + OFF)) * SPAN + (x + OFF);

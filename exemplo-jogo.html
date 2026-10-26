@@ -39,7 +39,7 @@
 </script>
 <script type="module">
 import * as THREE from 'three';
-import { VegWorld, defaultProject } from './veg-render.js';
+import { VegWorld, defaultProject, migrateProject } from './veg-render.js';
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -58,7 +58,7 @@ scene.add(hemi, sun, sun.target);
 
 // 1) projeto: o mesmo JSON que o editor salva (ou o que ele deixou no navegador)
 let project = null, label = '';
-try { const s = localStorage.getItem('floresta-voxel:projeto'); if (s) { project = { ...defaultProject(), ...JSON.parse(s) }; label = 'Projeto do editor (salvo no navegador)'; } } catch {}
+try { const s = localStorage.getItem('floresta-voxel:projeto'); if (s) { project = migrateProject(JSON.parse(s)); label = 'Projeto do editor (salvo no navegador)'; } } catch {}
 let world;
 function load(p, fill) {
   if (world) scene.remove(world.group);
@@ -88,7 +88,7 @@ document.getElementById('open').onclick = () => document.getElementById('file').
 document.getElementById('file').onchange = async e => {
   const f = e.target.files[0]; e.target.value = '';
   if (!f) return;
-  try { const j = JSON.parse(await f.text()); label = f.name; load({ ...defaultProject(), ...j }, false); } catch (err) { document.getElementById('src').textContent = 'Arquivo inválido'; }
+  try { const j = JSON.parse(await f.text()); label = f.name; load(migrateProject(j), false); } catch (err) { document.getElementById('src').textContent = 'Arquivo inválido: ' + err.message; }
 };
 
 const keys = new Set();
