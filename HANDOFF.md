@@ -33,6 +33,14 @@ Plano aprovado em 2026-10-26: Incremento 0 (fundação) → Marco 1 do GDD em 7 
 4. **Verificação:** `npm test` 8/8. Navegador (8767): editor sem erros (só o favicon 404, que já existia), 615 árvores / 165 fps; fixture v1 colocada no autosave → recarrega com seed 777, 378 árvores, canto de pinheiros pintado mantido; `exemplo-jogo.html` carrega o mesmo projeto.
 5. **Riscos/continuação:** o jogador do runtime nasce em (0,0) mesmo se houver árvore ali (já era assim). Próximo: Incremento 1, desfazer/refazer.
 
+### Incremento 1 — Desfazer/refazer (2026-10-26)
+
+1. **Entrega:** cada traço de pincel (árvores, grama, borracha, Shift) e as ações "Preencher tudo"/"Limpar tudo" podem ser desfeitos e refeitos com os botões ↶/↷ do painel, Ctrl+Z, Ctrl+Shift+Z ou Ctrl+Y. A linha de status diz "Desfeito: borracha" etc.; o botão mostra no título o que vai desfazer.
+2. **Arquivos:** `veg-history.js` novo (trilha Sonnet): `History` (60 passos / 32 MB) e remendos `snapshotLayers`/`makePatch`/`applyPatch`, que guardam só o retângulo e só as camadas que mudaram. `VegWorld.maskLayers()`, `maskRect(bounds)`, `bounds`. Em `floresta.html`: `maskCommand`, `maskAction`, traço com snapshot no `pointerdown` e comando no fim (inclusive quando um segundo dedo vira gesto de câmera). **Convenção nova:** toda ferramenta que muda máscaras passa por `maskCommand`/`maskAction`. Trocar tamanho do mapa ou abrir projeto zera o histórico e avisa. Histórico não é salvo (só na sessão).
+3. **TIGHT:** Tempo — aplicar o remendo do mapa inteiro leva 0,2 ms; o pior quadro depois é 12 ms (a reconstrução já existente da grama/árvores); desfazer só refaz a área tocada. Integridade — máscaras e contagens voltam exatamente (soma ponderada das máscaras idêntica; 615→590→615 árvores). Game feel — botões desabilitados quando não há o que fazer, mensagem de causa, atalho no rodapé. Harmonia — mesmos chips do painel; em 375 px ficam numa linha de dois. Testes — 9 testes novos em `tests/history.test.mjs` (17 no total).
+4. **Verificação:** `npm test` 17/17. Navegador (Playwright, 8767): traço de borracha → Ctrl+Z → Ctrl+Shift+Z → Ctrl+Y (vazio) → "Limpar tudo" → botão Desfazer; estado idêntico em cada volta; console só com o favicon 404.
+5. **Riscos/continuação:** mudanças de parâmetros do menu Avançado (semente, campos, relevo) ainda não entram no histórico — não alteram máscaras, mas mudam o mundo. Camadas novas (solo, no Incremento 3) só precisam entrar em `maskLayers()`. Próximo: Incremento 2, relógio e estações.
+
 Abrir: preview `vegetacao` → `http://localhost:8767/floresta.html`.
 
 ## Verificado

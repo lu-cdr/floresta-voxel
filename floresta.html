@@ -58,7 +58,9 @@
     border-radius: 9px; padding: 9px 6px; cursor: pointer; display: flex; gap: 6px; align-items: center; justify-content: center;
     transition: background-color .15s ease, transform .12s ease;
   }
-  .seg button:hover { border-color: var(--line); }
+  .seg button:hover:not(:disabled) { border-color: var(--line); }
+  .seg button:disabled { opacity: .45; cursor: default; transform: none; }
+  #histSeg button { font-weight: 500; padding: 7px 6px; }
   .seg button:active { transform: scale(.97); }
   .seg button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
   .seg kbd { font: 500 10px/1 var(--f-pixel); color: var(--muted); }
@@ -93,6 +95,7 @@
   @media (max-width: 760px) {
     .tools { top: auto; bottom: 64px; transform: none; width: calc(100% - 32px); grid-template-columns: 1fr 1fr; }
     .tools .seg { grid-column: 1 / -1; grid-template-columns: repeat(4, 1fr); }
+    .tools #histSeg { grid-template-columns: 1fr 1fr; }
     .tools h2, .busy { grid-column: 1 / -1; }
     .brand p { display: none; }
     .lil-gui.root { width: min(300px, calc(100% - 24px)) !important; max-height: 45%; }
@@ -115,6 +118,10 @@
     <button data-tool="grama" aria-pressed="false">Grama <kbd>2</kbd></button>
     <button data-tool="borracha" aria-pressed="false">Borracha <kbd>E</kbd></button>
   </div>
+  <div class="seg" id="histSeg">
+    <button id="bUndo" disabled aria-keyshortcuts="Control+Z" title="Nada para desfazer">↶ Desfazer</button>
+    <button id="bRedo" disabled aria-keyshortcuts="Control+Shift+Z Control+Y" title="Nada para refazer">↷ Refazer</button>
+  </div>
   <h2>Pincel</h2>
   <div class="row"><label for="bRadius">Raio <output id="oRadius"></output></label><input id="bRadius" type="range" min="1" max="24" step=".5" value="7"></div>
   <div class="row"><label for="bStrength">Força <output id="oStrength"></output></label><input id="bStrength" type="range" min=".05" max="1" step=".05" value=".6"></div>
@@ -128,7 +135,7 @@
   <div class="busy" id="busy" aria-live="polite"></div>
 </div>
 
-<div class="hint" id="hint">Arraste para pintar · botão direito gira · roda dá zoom · Shift apaga · [ ] muda o raio</div>
+<div class="hint" id="hint">Arraste para pintar · botão direito gira · roda dá zoom · Shift apaga · [ ] raio · Ctrl+Z desfaz</div>
 <input type="file" id="fileProject" accept=".json,application/json" hidden>
 <input type="file" id="fileStyle" accept=".json,application/json" hidden>
 
@@ -147,6 +154,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import GUI from 'lil-gui';
 import { VegWorld, defaultProject, migrateProject, treeGeometry, bakedTreeMesh } from './veg-render.js';
 import { SPECIES, SPECIES_KEYS, STYLES, genTreeVoxels, meshVoxels, variantSeed } from './veg-core.js';
+import { History, snapshotLayers, makePatch, applyPatch } from './veg-history.js';
 
 const $ = s => document.querySelector(s);
 const canvas = $('#scene');
@@ -222,7 +230,7 @@ function setTool(t) {
   applyToolToControls();
   $('#hint').textContent = t === 'camera'
     ? 'Arraste para girar · botão direito move · roda dá zoom'
-    : 'Arraste para pintar · botão direito gira · roda dá zoom · Shift apaga · [ ] muda o raio';
+    : 'Arraste para pintar · botão direito gira · roda dá zoom · Shift apaga · [ ] raio · Ctrl+Z desfaz';
 }
 document.querySelectorAll('#toolSeg button').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
 for (const k of SPECIES_KEYS) $('#bSpecies').add(new Option(SPECIES[k].label, SPECIES_KEYS.indexOf(k)));
@@ -261,6 +269,55 @@ let painting = false, shiftDown = false;
 const dirty = { trees: false, grass: null, colors: false, terrain: false, variants: 0, save: 0 };
 const mergeBounds = (a, b) => !a ? b : { x0: Math.min(a.x0, b.x0), x1: Math.max(a.x1, b.x1), z0: Math.min(a.z0, b.z0), z1: Math.max(a.z1, b.z1) };
 
+/* ---------- desfazer / refazer ----------
+   Toda mudança nas máscaras vira um comando com o remendo do retângulo afetado
+   (antes/depois), então desfazer não reconstrói o mundo, só a área tocada. */
+const history = new History({ onChange: syncHistoryUi });
+function markMasks(bounds, patch) {
+  if (patch.after.trees || patch.after.species) dirty.trees = true;
+  if (dirty.grass !== 'all') dirty.grass = mergeBounds(dirty.grass, bounds);
+  dirty.colors = true;
+  dirty.save = performance.now();
+}
+function maskCommand(label, before, bounds) {
+  const rect = world.maskRect(bounds);
+  const patch = rect && makePatch(world.maskLayers(), before, rect, world.maskN);
+  if (!patch) return false;
+  const put = which => { applyPatch(world.maskLayers(), patch, which, world.maskN); markMasks(bounds, patch); };
+  history.push({ label, bytes: patch.bytes, apply: () => put('after'), revert: () => put('before') });
+  return true;
+}
+// ação de mapa inteiro (preencher, limpar) passando pelo histórico
+function maskAction(label, fn) {
+  const before = snapshotLayers(world.maskLayers());
+  fn();
+  if (!maskCommand(label, before, world.bounds)) busy('Nada mudou.');
+}
+let stroke = null; // traço em andamento: { before, bounds, label }
+function endStroke() {
+  painting = false;
+  if (stroke?.bounds) maskCommand(stroke.label, stroke.before, stroke.bounds);
+  stroke = null;
+}
+function undo() {
+  if (stroke) return;
+  const c = history.undo();
+  busy(c ? 'Desfeito: ' + c.label : 'Nada para desfazer.');
+}
+function redo() {
+  if (stroke) return;
+  const c = history.redo();
+  busy(c ? 'Refeito: ' + c.label : 'Nada para refazer.');
+}
+function syncHistoryUi() {
+  const u = $('#bUndo'), r = $('#bRedo');
+  u.disabled = !history.canUndo; r.disabled = !history.canRedo;
+  u.title = history.canUndo ? `Desfazer ${history.undoLabel} (Ctrl+Z)` : 'Nada para desfazer';
+  r.title = history.canRedo ? `Refazer ${history.redoLabel} (Ctrl+Shift+Z)` : 'Nada para refazer';
+}
+$('#bUndo').addEventListener('click', undo);
+$('#bRedo').addEventListener('click', redo);
+
 function pick(e) {
   const r = canvas.getBoundingClientRect();
   ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
@@ -285,19 +342,22 @@ function stamp(e, first) {
     for (const L of layers) {
       const b = world.paint(L, x, z, brush.radius, s, brush.hard, erase, brush.species);
       if (L === 'arvores') dirty.trees = true;
-      dirty.grass = mergeBounds(dirty.grass, b);
+      if (dirty.grass !== 'all') dirty.grass = mergeBounds(dirty.grass, b);
+      if (stroke) stroke.bounds = mergeBounds(stroke.bounds, b);
     }
   }
+  if (stroke && !stroke.label) stroke.label = erase ? 'borracha' : brush.tool === 'grama' ? 'pincel de grama' : 'pincel de árvores';
   lastHit = hit;
   dirty.colors = true;
   dirty.save = performance.now();
 }
 canvas.addEventListener('pointerdown', e => {
   pointers.add(e.pointerId);
-  if (pointers.size > 1) { painting = false; return; }
+  if (pointers.size > 1) { endStroke(); return; } // segundo dedo: vira gesto de câmera
   if (brush.tool !== 'camera' && e.button === 0) {
     painting = true;
     canvas.setPointerCapture(e.pointerId);
+    stroke = { before: snapshotLayers(world.maskLayers()), bounds: null, label: '' };
     stamp(e, true);
   }
 });
@@ -308,7 +368,7 @@ canvas.addEventListener('pointermove', e => {
     if (hit) { cursor.x = hit.x; cursor.z = hit.z; cursor.on = true; }
   }
 });
-const endPaint = e => { pointers.delete(e.pointerId); painting = false; };
+const endPaint = e => { pointers.delete(e.pointerId); if (painting) endStroke(); };
 canvas.addEventListener('pointerup', endPaint);
 canvas.addEventListener('pointercancel', endPaint);
 canvas.addEventListener('pointerleave', () => { cursor.on = false; });
@@ -316,6 +376,12 @@ canvas.addEventListener('contextmenu', e => e.preventDefault());
 addEventListener('keydown', e => {
   if (e.target.closest?.('input, select, textarea, .lil-gui')) return;
   const k = e.key.toLowerCase();
+  if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y')) {
+    e.preventDefault();
+    if (k === 'y' || e.shiftKey) redo(); else undo();
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return; // não roubar atalhos do navegador
   if (k === 'c') setTool('camera');
   else if (k === '1') setTool('arvores');
   else if (k === '2') setTool('grama');
@@ -367,7 +433,10 @@ function buildGui() {
 
   const fm = gui.addFolder('Mundo');
   fm.add(P, 'seed', 0, 99999, 1).name('semente geral').onChange(markVariants);
-  fm.add(P, 'size', [64, 96, 128, 160]).name('tamanho').onChange(v => { world.setSize(+v); world.fillAll('arvores'); world.fillAll('grama'); placeCamera(); applyLook(); markTrees(); });
+  fm.add(P, 'size', [64, 96, 128, 160]).name('tamanho').onChange(v => {
+    world.setSize(+v); world.fillAll('arvores'); world.fillAll('grama'); placeCamera(); applyLook(); markTrees();
+    history.clear(); busy('Novo tamanho: o mapa recomeçou e o histórico foi zerado.');
+  });
   fm.add(P.terrain, 'amp', 0, 16, .5).name('altura do relevo').onChange(() => dirty.terrain = true);
   fm.add(P.terrain, 'step', .25, 2, .25).name('degrau').onChange(() => dirty.terrain = true);
   addField(fm, P.terrain.field, () => dirty.terrain = true, 'Ruído do relevo');
@@ -467,9 +536,9 @@ function buildGui() {
   fe.close();
 
   const fa = gui.addFolder('Arquivo e exportação');
-  fa.add({ f: () => { world.fillAll('arvores'); markTrees(); dirty.colors = true; } }, 'f').name('Preencher tudo com árvores');
-  fa.add({ f: () => { world.fillAll('grama'); dirty.grass = 'all'; dirty.colors = true; } }, 'f').name('Preencher tudo com grama');
-  fa.add({ f: () => { world.fillAll('arvores', 0); world.fillAll('grama', 0); markTrees(); dirty.colors = true; } }, 'f').name('Limpar tudo');
+  fa.add({ f: () => maskAction('preencher árvores', () => { world.fillAll('arvores'); markTrees(); dirty.colors = true; }) }, 'f').name('Preencher tudo com árvores');
+  fa.add({ f: () => maskAction('preencher grama', () => { world.fillAll('grama'); dirty.grass = 'all'; dirty.colors = true; }) }, 'f').name('Preencher tudo com grama');
+  fa.add({ f: () => maskAction('limpar tudo', () => { world.fillAll('arvores', 0); world.fillAll('grama', 0); markTrees(); dirty.colors = true; }) }, 'f').name('Limpar tudo');
   fa.add({ f: () => download('floresta.json', JSON.stringify(world.toJSON()), 'application/json') }, 'f').name('Salvar projeto .json');
   fa.add({ f: () => $('#fileProject').click() }, 'f').name('Abrir projeto .json…');
   const ex = { species: 'carvalho', formato: .5, variante: 0, comCor: false };
@@ -575,6 +644,7 @@ readJSON($('#fileProject'), j => {
   world.setSize(P.size, j.masks);
   world.invalidateVariants();
   placeCamera(); applyLook(); buildGui(); markTrees(); dirty.colors = true;
+  history.clear(); busy('Projeto aberto. O histórico começa daqui.');
 });
 readJSON($('#fileStyle'), j => {
   if (!j.species || !j.terrain) return busy('Estilo sem "species" ou "terrain".');

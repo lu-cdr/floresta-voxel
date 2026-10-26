@@ -192,6 +192,18 @@ export class VegWorld {
     }
     return { x0: x - radius, x1: x + radius, z0: z - radius, z1: z + radius };
   }
+  // camadas pintadas que o histórico guarda (todas maskN × maskN)
+  maskLayers() { return { trees: this.treeMask, grass: this.grassMask, species: this.speciesMask }; }
+  // bounds em mundo → retângulo inclusivo de células da máscara (mesma conta do paint)
+  maskRect(b) {
+    const n = this.maskN, h = this.P.size / 2, r = this.res;
+    const rect = {
+      i0: Math.max(0, Math.floor((b.x0 + h) * r)), i1: Math.min(n - 1, Math.ceil((b.x1 + h) * r)),
+      j0: Math.max(0, Math.floor((b.z0 + h) * r)), j1: Math.min(n - 1, Math.ceil((b.z1 + h) * r)),
+    };
+    return rect.i0 > rect.i1 || rect.j0 > rect.j1 ? null : rect;
+  }
+  get bounds() { const h = this.P.size / 2; return { x0: -h, x1: h, z0: -h, z1: h }; }
   fillAll(layer, v = 1) {
     (layer === 'grama' ? this.grassMask : this.treeMask).fill(v);
     if (layer !== 'grama') this.speciesMask.fill(-1);

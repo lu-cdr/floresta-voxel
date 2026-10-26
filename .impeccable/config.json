@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "instrument sans",
+        "createdAt": "2026-10-26T11:15:40.615Z",
+        "reason": "project decision: HANDOFF.md 'Decisões já tomadas' fixes the ICQR type family (Bricolage Grotesque, Instrument Sans, Silkscreen)"
+      }
+    ]
+  }
+}
