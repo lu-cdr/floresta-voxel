@@ -4,7 +4,7 @@
    usam a mesma classe VegWorld; o "projeto" (JSON) é o que o editor exporta. */
 import * as THREE from 'three';
 import {
-  SPECIES_KEYS, STYLES, defaultProject, migrateProject, sampleField, genTreeVoxels, meshVoxels,
+  SPECIES_KEYS, STYLES, defaultProject, migrateProject, sampleField, genTreeVoxels, colorTree, meshVoxels,
   scatterTrees, scatterGrass, bucketT, variantSeed, hexToRgb, srgbToLinear, shiftHsl, hash3, clamp01, lerp,
 } from './veg-core.js';
 
@@ -147,10 +147,11 @@ export class VegWorld {
     this.terrainMat = new THREE.MeshLambertMaterial({ vertexColors: true });
     this.variants = new Map();     // key → { geo, mesh, cap, ready }
     this.genQueue = [];
+    this.recolorQueue = new Set();
     this.trees = [];
     this.grassChunks = new Map();  // "cx,cz" → InstancedMesh
     this.overlay = 'nenhum';
-    this.stats = { arvores: 0, grama: 0, variantes: 0, fila: 0, genMs: 0 };
+    this.stats = { arvores: 0, grama: 0, variantes: 0, fila: 0, recolor: 0, genMs: 0 };
     this.setSize(project.size, project.masks);
   }
 
@@ -259,6 +260,7 @@ export class VegWorld {
     const T = style.terrain;
     const C = Object.fromEntries(Object.entries(T).map(([k, v]) => [k, hexToRgb(v)]));
     const h = size / 2, tileCol = new Array(size * size), sideCol = new Array(size * size);
+    const snowC = style.snow > 0 && T.snow ? hexToRgb(T.snow) : null;
     const field = this.overlay !== 'nenhum' ? (this.overlay === 'terreno' ? terrain.field : this.P.fields[this.overlay]) : null;
     for (let j = 0; j < size; j++) for (let i = 0; i < size; i++) {
       const t = j * size + i, x = i - h + .5, z = j - h + .5;
@@ -267,7 +269,7 @@ export class VegWorld {
       const gm = this.sampleMask(this.grassMask, x, z), tm = this.sampleMask(this.treeMask, x, z);
       c = c.map((v, k) => lerp(v, C.grass[k], gm * .8));
       c = c.map((v, k) => lerp(v, C.litter[k], tm * .35));
-      if (style.snow > 0 && T.snow) c = c.map((v, k) => lerp(v, hexToRgb(T.snow)[k], style.snow * .7));
+      if (snowC) c = c.map((v, k) => lerp(v, snowC[k], style.snow * .7));
       c = shiftHsl(c, 0, 0, (hash3(i, j, 5) - .5) * .035);
       if (field) c = ramp(sampleField(field, x, z)).map((v, k) => lerp(c[k], v, .82));
       tileCol[t] = srgbToLinear(c);
@@ -307,6 +309,7 @@ export class VegWorld {
     for (const v of this.variants.values()) { this.treeGroup.remove(v.mesh); v.geo?.dispose(); }
     this.variants.clear();
     this.genQueue.length = 0;
+    this.recolorQueue.clear();
     this.applyTrees();
   }
   ensureVariant(key) {
@@ -323,6 +326,7 @@ export class VegWorld {
     const tree = genTreeVoxels(species, bucketT(+b, this.P.trees.shapeBuckets), variantSeed(species, b, vi, this.P.seed), this.P.style, this.P.species);
     const m = meshVoxels(tree, this.P.style.voxel);
     this.stats.genMs = Math.round(performance.now() - t0);
+    m.tree = tree; // guardado para recolorir na troca de estação sem refazer a geometria
     return m;
   }
   rescatterTrees() {
@@ -445,22 +449,51 @@ export class VegWorld {
         const key = this.genQueue.shift(), v = this.variants.get(key);
         if (!v) continue;
         const mesh = this.buildVariant(key);
-        v.geo = treeGeometry(mesh); v.height = mesh.height; v.ready = true; v.voxels = mesh.voxels;
+        v.geo = treeGeometry(mesh); v.height = mesh.height; v.ready = true; v.voxels = mesh.voxels; v.tree = mesh.tree;
         built = true;
       }
       if (built) this.applyTrees();
     }
+    // recolorir (estação/paleta): mesma fatia de tempo, depois da geração
+    if (this.recolorQueue.size) {
+      const t0 = performance.now();
+      for (const key of this.recolorQueue) {
+        if (performance.now() - t0 > 12) break;
+        this.recolorQueue.delete(key);
+        this.recolorVariant(key);
+      }
+    }
     this.stats.fila = this.genQueue.length;
+    this.stats.recolor = this.recolorQueue.size;
   }
 
-  /* --- troca de estilo (o "design document") --- */
+  /* --- troca de estilo (o "design document") ---
+     Mesmo tamanho de voxel: só recolore as variantes prontas, na fila, sem refazer geometria.
+     Voxel diferente: regenera tudo. */
   setStyle(style, name) {
+    const sameVoxel = style.voxel === this.P.style.voxel;
     this.P.style = structuredClone(style);
     if (name) this.P.styleName = name;
     this.recolorTerrain();
-    this.invalidateVariants();
+    if (sameVoxel) for (const [key, v] of this.variants) { if (v.ready) this.recolorQueue.add(key); }
+    else this.invalidateVariants();
     this.U.uGBase.value.set(this.P.style.grass.base);
     this.U.uGTip.value.set(this.P.style.grass.tip);
+  }
+  recolorVariant(key) {
+    const v = this.variants.get(key);
+    if (!v?.ready || !v.tree) return;
+    colorTree(v.tree, this.P.style);
+    const m = meshVoxels(v.tree, this.P.style.voxel);
+    const col = v.geo.attributes.color, veg = v.geo.attributes.aVeg;
+    // a malha não muda (mesma ocupação), só cor e o sinal de folha; se mudar, é bug: refaz do zero
+    if (m.color.length !== col.array.length) { v.geo.dispose(); v.geo = treeGeometry(m); this.rebindVariant(v); return; }
+    col.array.set(m.color); col.needsUpdate = true;
+    veg.array.set(m.veg); veg.needsUpdate = true;
+  }
+  rebindVariant(v) {
+    if (v.mesh) { this.treeGroup.remove(v.mesh); v.mesh = null; v.cap = 0; }
+    this.applyTrees();
   }
 
   /* --- salvar / carregar --- */

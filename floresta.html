@@ -73,15 +73,39 @@
   .tools h2 { margin: 2px 0 0; font: 700 11px/1 var(--f-body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
   .busy { font: 500 11.5px/1.3 var(--f-body); color: var(--accent); min-height: 1.3em; }
 
+  /* relógio e estações, embaixo no centro */
+  .clock {
+    position: fixed; z-index: 3; bottom: 16px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 14px; padding: 8px 10px 8px 12px; max-width: calc(100% - 32px);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
+    font: 500 12px/1.2 var(--f-body); color: var(--muted);
+  }
+  .clock .season { display: flex; align-items: center; gap: 9px; min-width: 128px; }
+  .clock .season strong { display: block; font: 700 14px/1.1 var(--f-display); color: var(--ink); }
+  .clock .season span { font-variant-numeric: tabular-nums; }
+  .clock .swatch { width: 16px; height: 16px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .18); transition: background-color .4s ease; }
+  .clock .hour { display: flex; align-items: center; gap: 8px; }
+  .clock .hour output { font: 500 12px var(--f-pixel); color: var(--ink); min-width: 5ch; font-variant-numeric: tabular-nums; }
+  .clock .hour input { width: 120px; accent-color: var(--accent); }
+  .clock .steps { display: flex; gap: 4px; }
+  .clock button {
+    font: 600 12px/1 var(--f-body); color: var(--ink); background: var(--chip); border: 1px solid transparent;
+    border-radius: 9px; padding: 8px 9px; cursor: pointer; white-space: nowrap; transition: background-color .15s ease, transform .12s ease;
+  }
+  .clock button:hover { border-color: var(--line); }
+  .clock button:active { transform: scale(.97); }
+  .clock .chk { display: flex; align-items: center; gap: 6px; white-space: nowrap; cursor: pointer; }
+  .clock .chk input { accent-color: var(--accent); margin: 0; }
+
   .hint {
-    position: fixed; z-index: 2; bottom: 16px; left: 50%; transform: translateX(-50%);
+    position: fixed; z-index: 2; bottom: 80px; left: 50%; transform: translateX(-50%);
     font: 500 12px/1.3 var(--f-body); color: var(--muted); background: var(--panel); border: 1px solid var(--line);
     border-radius: 999px; padding: 8px 14px; box-shadow: var(--shadow); white-space: nowrap; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis;
   }
 
   /* menu de debug (lil-gui) com os tokens da página */
   .lil-gui.root {
-    position: fixed; top: 12px; right: 12px; max-height: calc(100% - 24px); overflow-y: auto; z-index: 4;
+    position: fixed; top: 12px; right: 12px; max-height: calc(100% - 96px); overflow-y: auto; z-index: 4; /* termina acima do relógio */
     border-radius: 12px; box-shadow: var(--shadow); border: 1px solid var(--line);
   }
   .lil-gui {
@@ -93,7 +117,13 @@
   .lil-gui .title { font-weight: 600; }
 
   @media (max-width: 760px) {
-    .tools { top: auto; bottom: 64px; transform: none; width: calc(100% - 32px); grid-template-columns: 1fr 1fr; }
+    .tools { top: auto; bottom: 132px; transform: none; width: calc(100% - 32px); grid-template-columns: 1fr 1fr; }
+    .hint { display: none; }
+    .clock { width: calc(100% - 32px); flex-wrap: wrap; gap: 8px 12px; bottom: 12px; }
+    .clock .hour { flex: 1; }
+    .clock .hour input { width: 100%; }
+    .clock .steps { order: 3; flex: 1 1 100%; }
+    .clock .steps button { flex: 1; }
     .tools .seg { grid-column: 1 / -1; grid-template-columns: repeat(4, 1fr); }
     .tools #histSeg { grid-template-columns: 1fr 1fr; }
     .tools h2, .busy { grid-column: 1 / -1; }
@@ -135,6 +165,19 @@
   <div class="busy" id="busy" aria-live="polite"></div>
 </div>
 
+<div class="clock" id="clock" role="group" aria-label="Tempo">
+  <div class="season">
+    <span class="swatch" id="cSwatch" aria-hidden="true"></span>
+    <div><strong id="cSeason">Outono</strong><span id="cDay">dia 1 de 12</span></div>
+  </div>
+  <label class="hour"><output id="cHour">10:00</output><input id="cTime" type="range" min="0" max=".995" step=".005" aria-label="Hora do dia"></label>
+  <div class="steps">
+    <button data-days="1" title="Avançar um dia">+1 dia</button>
+    <button data-days="7" title="Avançar uma semana">+1 semana</button>
+    <button data-days="season" title="Ir para o primeiro dia da próxima estação">Próxima estação</button>
+  </div>
+  <label class="chk" title="As cores da floresta mudam com a estação"><input type="checkbox" id="cSeasonal"> Cores da estação</label>
+</div>
 <div class="hint" id="hint">Arraste para pintar · botão direito gira · roda dá zoom · Shift apaga · [ ] raio · Ctrl+Z desfaz</div>
 <input type="file" id="fileProject" accept=".json,application/json" hidden>
 <input type="file" id="fileStyle" accept=".json,application/json" hidden>
@@ -153,7 +196,7 @@ import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import GUI from 'lil-gui';
 import { VegWorld, defaultProject, migrateProject, treeGeometry, bakedTreeMesh } from './veg-render.js';
-import { SPECIES, SPECIES_KEYS, STYLES, genTreeVoxels, meshVoxels, variantSeed } from './veg-core.js';
+import { SPECIES, SPECIES_KEYS, STYLES, SEASONS, seasonAt, seasonStyle, lightAt, genTreeVoxels, meshVoxels, variantSeed } from './veg-core.js';
 import { History, snapshotLayers, makePatch, applyPatch } from './veg-history.js';
 
 const $ = s => document.querySelector(s);
@@ -178,7 +221,7 @@ sun.shadow.bias = -0.0005;
 sun.shadow.normalBias = 0.04;
 scene.add(hemi, sun, sun.target);
 
-const view = { showTrees: true, showGrass: true, sunAz: 35, sunEl: 58, sunI: 2.3, hemiI: 1.05, shadows: true, fog: true, iso: false, overlay: 'nenhum', autosave: true };
+const view = { showTrees: true, showGrass: true, sunAz: 35, sunI: 2.3, hemiI: 1.05, shadows: true, fog: true, iso: false, overlay: 'nenhum', autosave: true };
 
 /* ---------- mundo ---------- */
 let project = defaultProject();
@@ -374,8 +417,10 @@ canvas.addEventListener('pointercancel', endPaint);
 canvas.addEventListener('pointerleave', () => { cursor.on = false; });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 addEventListener('keydown', e => {
-  if (e.target.closest?.('input, select, textarea, .lil-gui')) return;
   const k = e.key.toLowerCase();
+  // campos de texto têm o próprio desfazer; slider, caixa e botão não
+  const typing = e.target.closest?.('input:not([type=range]):not([type=checkbox]), select, textarea, .lil-gui');
+  if (typing) return;
   if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y')) {
     e.preventDefault();
     if (k === 'y' || e.shiftKey) redo(); else undo();
@@ -419,8 +464,18 @@ const markTrees = () => { dirty.trees = true; dirty.grass = 'all'; if (view.over
 const markVariants = () => { dirty.variants = performance.now(); dirty.trees = true; dirty.grass = 'all'; };
 
 function buildGui() {
+  const keep = gui && { open: new Set(gui.foldersRecursive().filter(f => !f._closed).map(folderPath)), scroll: gui.domElement.scrollTop, closed: gui._closed };
   gui?.destroy();
   gui = new GUI({ title: 'Debug · vegetação', width: 300 });
+  buildGuiFolders();
+  if (keep) {
+    for (const f of gui.foldersRecursive()) f.open(keep.open.has(folderPath(f)));
+    gui.open(!keep.closed);
+    gui.domElement.scrollTop = keep.scroll;
+  } else if (innerWidth < 760) gui.close();
+}
+function folderPath(f) { let s = ''; for (let x = f; x && x.parent; x = x.parent) s = x._title + '/' + s; return s; }
+function buildGuiFolders() {
 
   const fv = gui.addFolder('Ver');
   fv.add(view, 'overlay', OVERLAYS).name('campo no terreno').onChange(v => { world.overlay = v; dirty.colors = true; });
@@ -505,15 +560,14 @@ function buildGui() {
   fw.close();
 
   const fl = gui.addFolder('Luz');
-  fl.add(view, 'sunAz', 0, 360, 1).name('sol · azimute').onChange(applyLook);
-  fl.add(view, 'sunEl', 5, 89, 1).name('sol · elevação').onChange(applyLook);
+  fl.add(view, 'sunAz', 0, 360, 1).name('sol · orientação').onChange(applyLook); // a hora vem do relógio
   fl.add(view, 'sunI', 0, 5, .05).name('sol · força').onChange(applyLook);
   fl.add(view, 'hemiI', 0, 3, .05).name('ambiente').onChange(applyLook);
   fl.close();
 
   const fe = gui.addFolder('Estilo (design document)');
   const st = { preset: P.styleName in STYLES ? P.styleName : 'Outono ICQR' };
-  fe.add(st, 'preset', Object.keys(STYLES)).name('predefinido').onChange(v => { world.setStyle(STYLES[v], v); applyLook(); buildGui(); markTrees(); });
+  fe.add(st, 'preset', Object.keys(STYLES)).name('predefinido').onChange(v => { fixColors(); world.setStyle(STYLES[v], v); applyLook(); buildGui(); markTrees(); });
   fe.add(P.style, 'voxel', .1, .5, .025).name('tamanho do voxel').onChange(markVariants);
   fe.add(P.style, 'snow', 0, 1, .01).name('neve').onChange(() => { markVariants(); dirty.colors = true; });
   const fsc = fe.addFolder('Céu e terreno');
@@ -531,6 +585,7 @@ function buildGui() {
     f.onFinishChange(markVariants);
     f.close();
   }
+  fe.onChange(() => fixColors());
   fe.add({ abrir: () => $('#fileStyle').click() }, 'abrir').name('Abrir estilo .json…');
   fe.add({ salvar: () => download('estilo-vegetacao.json', JSON.stringify(P.style, null, 2), 'application/json') }, 'salvar').name('Salvar estilo .json');
   fe.close();
@@ -557,18 +612,16 @@ function buildGui() {
   fst.add(world.stats, 'fila').name('na fila').listen().disable();
   fst.add(world.stats, 'genMs').name('ms última variante').listen().disable();
   fst.add(stats, 'fps').listen().disable();
-
-  if (innerWidth < 760) gui.close();
 }
 
 /* ---------- aparência ---------- */
 function applyLook() {
-  const S = P.style;
-  scene.background = new THREE.Color(S.sky);
-  scene.fog = view.fog ? new THREE.Fog(S.fog, P.size * .9, P.size * 2.6) : null;
-  hemi.color.set(S.hemiSky); hemi.groundColor.set(S.hemiGround); hemi.intensity = view.hemiI;
-  sun.color.set(S.sun); sun.intensity = view.sunI;
-  const az = view.sunAz * Math.PI / 180, el = view.sunEl * Math.PI / 180, D = P.size;
+  const S = P.style, L = lightAt(P.ecology.dayTime, S);
+  scene.background = new THREE.Color(L.sky);
+  scene.fog = view.fog ? new THREE.Fog(L.fog, P.size * .9, P.size * 2.6) : null;
+  hemi.color.set(S.hemiSky); hemi.groundColor.set(S.hemiGround); hemi.intensity = view.hemiI * L.hemiI;
+  sun.color.set(L.sunColor); sun.intensity = view.sunI * L.sunI;
+  const az = (view.sunAz + L.sunAz) * Math.PI / 180, el = L.sunEl * Math.PI / 180, D = P.size;
   sun.position.set(Math.cos(el) * Math.cos(az) * D, Math.sin(el) * D, Math.cos(el) * Math.sin(az) * D);
   sun.shadow.camera.up.set(0, 0, -1);
   const sh = sun.shadow.camera, e = P.size * .75;
@@ -644,15 +697,69 @@ readJSON($('#fileProject'), j => {
   world.setSize(P.size, j.masks);
   world.invalidateVariants();
   placeCamera(); applyLook(); buildGui(); markTrees(); dirty.colors = true;
+  applySeason(); syncClock(); applyLook();
   history.clear(); busy('Projeto aberto. O histórico começa daqui.');
 });
 readJSON($('#fileStyle'), j => {
   if (!j.species || !j.terrain) return busy('Estilo sem "species" ou "terrain".');
+  fixColors();
   world.setStyle({ ...STYLES['Outono ICQR'], ...j }, 'personalizado');
   applyLook(); buildGui(); markTrees();
 });
 let busyT = 0;
 function busy(msg) { $('#busy').textContent = msg; clearTimeout(busyT); if (msg && !msg.endsWith('…')) busyT = setTimeout(() => $('#busy').textContent = '', 5000); }
+
+/* ---------- relógio e estações ----------
+   O tempo é ecology.tick (dias) + dayTime (hora). Avançar dias entra no histórico;
+   a hora é só luz. Com "Cores da estação", o estilo é o preset da estação misturado
+   com o da próxima nos últimos dias, recolorido sem refazer as árvores. */
+const eco = () => P.ecology;
+const hourLabel = t => { const m = Math.round(t * 1440) % 1440; return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); };
+function syncClock() {
+  const s = seasonAt(eco());
+  $('#cSeason').textContent = s.label;
+  $('#cDay').textContent = `dia ${s.day} de ${s.seasonLen}` + (s.year ? ` · ano ${s.year + 1}` : '');
+  $('#cHour').textContent = hourLabel(eco().dayTime);
+  $('#cTime').value = eco().dayTime;
+  $('#cSeasonal').checked = !!eco().seasonal;
+  $('#cSwatch').style.background = P.style.species.carvalho?.leaves?.[0] || P.style.terrain.grass;
+}
+function applySeason() {
+  if (!eco().seasonal) return;
+  const s = seasonStyle(eco(), { voxel: P.style.voxel });
+  if (JSON.stringify(s) === JSON.stringify(P.style)) return; // no meio da estação nada muda
+  world.setStyle(s, SEASONS[seasonAt(eco()).index].style); // já recolore o terreno
+  applyLook(); buildGui();
+}
+function setTick(t) {
+  eco().tick = Math.max(0, t);
+  applySeason(); syncClock();
+  dirty.save = performance.now();
+}
+function advance(days) {
+  const from = eco().tick, to = from + days, before = seasonAt(eco()).index;
+  setTick(to);
+  const s = seasonAt(eco());
+  const label = days === 1 ? 'avançar 1 dia' : days === 7 ? 'avançar 1 semana' : 'avançar estação';
+  history.push({ label, apply: () => setTick(to), revert: () => setTick(from) });
+  busy(s.index !== before ? `Chegou ${s.key === 'primavera' ? 'a' : 'o'} ${s.label}.` : `${s.label}, dia ${s.day}.`);
+}
+// estilo escolhido à mão vence a estação
+function fixColors() {
+  if (!eco().seasonal) return;
+  eco().seasonal = false; syncClock();
+  busy('Cores fixas no estilo escolhido. Marque "Cores da estação" para voltar.');
+}
+document.querySelectorAll('#clock [data-days]').forEach(b => b.addEventListener('click', () => {
+  const d = b.dataset.days === 'season' ? eco().seasonLen - (eco().tick % eco().seasonLen) : +b.dataset.days;
+  advance(d);
+}));
+$('#cTime').addEventListener('input', e => { eco().dayTime = +e.target.value; syncClock(); applyLook(); dirty.save = performance.now(); });
+$('#cSeasonal').addEventListener('change', e => {
+  eco().seasonal = e.target.checked;
+  if (e.target.checked) { applySeason(); busy('As cores seguem a estação.'); }
+  syncClock(); dirty.save = performance.now();
+});
 
 /* ---------- laço ---------- */
 function resize() {
@@ -680,7 +787,7 @@ function frame(now) {
   world.update(t);
   if (ring.visible) updateRing();
   if (world.stats.fila) busy(`Gerando variantes… ${world.stats.fila} na fila`);
-  else if ($('#busy').textContent.startsWith('Gerando variantes')) busy('');
+  else if ($('#busy').textContent.startsWith('Gerando variantes')) busy(''); // recolorir é rápido e visível: sem aviso
   controls.update();
   renderer.render(scene, camera);
   frames++;
@@ -691,8 +798,10 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+applySeason();
 buildGui();
 applyLook();
+syncClock();
 resize();
 setTool('arvores');
 world.rescatterTrees();

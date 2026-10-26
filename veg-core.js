@@ -5,13 +5,16 @@
    espaçamento, densidade, tamanho, formato, cor e espécie de cada árvore. */
 
 /* ---------- aleatório determinístico ---------- */
+// f.state() devolve o estado interno; rng(f.state()) segue exatamente a mesma sequência
 export function rng(seed) {
-  return function () {
+  const f = function () {
     seed |= 0; seed = seed + 0x6D2B79F5 | 0;
     let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
     t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
     return ((t ^ t >>> 14) >>> 0) / 4294967296;
   };
+  f.state = () => seed | 0;
+  return f;
 }
 export function hashStr(s) { let h = 2166136261; for (const ch of String(s)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
 // hash de inteiros → [0,1): o mesmo ponto sempre dá o mesmo número, independente da ordem
@@ -181,6 +184,67 @@ export const STYLES = {
   },
 };
 
+/* ---------- estações e luz do dia ---------- */
+export const SEASONS = [
+  { key: 'primavera', label: 'Primavera', style: 'Primavera' },
+  { key: 'verao', label: 'Verão', style: 'Verão denso' },
+  { key: 'outono', label: 'Outono', style: 'Outono ICQR' },
+  { key: 'inverno', label: 'Inverno', style: 'Inverno' },
+];
+// eco.tick = dias desde o início; eco.seasonLen = dias por estação
+export function seasonAt(eco) {
+  const len = Math.max(1, eco.seasonLen | 0), tick = Math.max(0, eco.tick | 0), n = Math.floor(tick / len);
+  const index = n % 4, day = tick % len + 1;
+  return { index, key: SEASONS[index].key, label: SEASONS[index].label, day, seasonLen: len, phase: (day - 1) / len, year: Math.floor(n / 4) };
+}
+
+const HEX = /^#[0-9a-f]{6}$/i;
+const mixHex = (a, b, t) => { const A = hexToRgb(a), B = hexToRgb(b); return rgbToHex(A.map((c, i) => lerp(c, B[i], t))); };
+// mistura pura (não muta): hex em sRGB, números em lerp, arrays ciclando o menor, objetos recursivos
+export function blendStyle(a, b, t) {
+  t = clamp01(t);
+  if (a === undefined) return structuredClone(b);
+  if (b === undefined) return structuredClone(a);
+  if (typeof a === 'string' && typeof b === 'string' && HEX.test(a) && HEX.test(b)) return mixHex(a, b, t);
+  if (typeof a === 'number' && typeof b === 'number') return lerp(a, b, t);
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (!a.length || !b.length) return structuredClone(a.length ? a : b);
+    return Array.from({ length: Math.max(a.length, b.length) }, (_, k) => blendStyle(a[k % a.length], b[k % b.length], t));
+  }
+  if (isObj(a) && isObj(b)) {
+    const out = {};
+    for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) out[k] = blendStyle(a[k], b[k], t);
+    return out;
+  }
+  return structuredClone(t < .5 ? a : b);
+}
+// preset da estação atual, mexendo para o da próxima no fim da estação
+export function seasonStyle(eco, { voxel } = {}) {
+  const s = seasonAt(eco), t = smoothstep(.7, 1, s.phase);
+  const a = STYLES[SEASONS[s.index].style], b = STYLES[SEASONS[(s.index + 1) % 4].style];
+  const out = t > 0 ? blendStyle(a, b, t) : structuredClone(a);
+  if (voxel != null) out.voxel = voxel;
+  return out;
+}
+
+/* dayTime ∈ [0,1): amanhecer .25, meio-dia .5, anoitecer .75. Dia = sol (58° · arco, azimute
+   -70°→+70°); noite = lua (35°, fraca). A direção só troca com a intensidade em zero. */
+export function lightAt(dayTime, style) {
+  const d = ((dayTime % 1) + 1) % 1, s = Math.sin(2 * Math.PI * (d - .25)); // altura normalizada: >0 dia
+  const arc = s > 0 ? (d - .25) / .5 : (d >= .75 ? d - .75 : d + .25) / .5;
+  const night = 1 - smoothstep(-.2, .12, s), warm = 1 - smoothstep(0, .4, Math.abs(s));
+  const moon = smoothstep(0, .2, -s);
+  const sunColor = mixHex(mixHex(style.sun, '#f2b27a', warm), '#9fb0d8', moon);
+  const dusk = c => mixHex(mixHex(c, '#f0c8a0', .35 * warm), '#1d2433', night);
+  return {
+    sunEl: s > 0 ? 58 * s : 35 * -s,
+    sunAz: lerp(-70, 70, arc),
+    sunI: s > 0 ? smoothstep(0, .3, s) : .18 * smoothstep(0, .3, -s),
+    hemiI: lerp(.35, 1, smoothstep(-.15, .25, s)),
+    sunColor, sky: dusk(style.sky), fog: dusk(style.fog), night,
+  };
+}
+
 /* ---------- projeto (formato "veg-forest") ----------
    v1: protótipo (terreno, campos, máscaras de árvore/grama/espécie).
    v2: + ecology (relógio, estações, modo) e photo. Árvores sem entrada em
@@ -214,8 +278,9 @@ export function defaultProject() {
     species: structuredClone(SPECIES),
     grass: { density: 16, heightMin: .22, heightMax: .75, noiseInfluence: .7, lean: .5, width: .07, style: 'voxel', underTrees: true },
     wind: { strength: .45, freq: 1.2, dir: 35, gust: .6 },
-    // estação 2 = outono, combinando com o estilo padrão
-    ecology: { mode: 'criativo', tick: 0, season: 2, dayTime: .42, seasonLen: 12, plants: {} },
+    // tick = dias desde o início; começa no 1º dia do outono, combinando com o estilo padrão.
+    // seasonal: o estilo segue a estação (seasonStyle) em vez de ficar fixo.
+    ecology: { mode: 'criativo', tick: 24, dayTime: .42, seasonLen: 12, seasonal: true, plants: {} },
     photo: { frame: 'nenhuma', showMeta: true },
     masks: null, // preenchido ao salvar
   };
@@ -241,7 +306,18 @@ export function migrateProject(j) {
   // estilo incompleto se completa pelo preset de mesmo nome, não sempre pelo padrão
   if (STYLES[src.styleName]) def.style = structuredClone(STYLES[src.styleName]);
   const out = fillDefaults(src, def);
-  // v1 → v2: nada a converter, só os campos novos (ecology, photo) vindos dos defaults
+  // v1 → v2: o estilo escolhido continua fixo; a estação inicial é a do estilo, se for um preset
+  if ((j.version | 0) < 2) {
+    const si = SEASONS.findIndex(x => x.style === src.styleName);
+    out.ecology.seasonal = false;
+    out.ecology.tick = (si < 0 ? 2 : si) * out.ecology.seasonLen;
+  }
+  // v2 inicial (só existiu em 2026-10-26) guardava ecology.season à parte do tick
+  if (src.ecology && 'season' in src.ecology) {
+    out.ecology.tick = (src.ecology.season | 0) * out.ecology.seasonLen + (src.ecology.tick | 0);
+    if (!('seasonal' in src.ecology)) out.ecology.seasonal = false;
+    delete out.ecology.season;
+  }
   out.version = PROJECT_VERSION;
   return out;
 }
@@ -282,22 +358,8 @@ export function genTreeVoxels(speciesKey, shapeT, seed, style, speciesOverrides)
   const R = rng(seed);
   const P = perlin(seed % 1000);
   const V = style.voxel;
-  const pal = style.species[speciesKey];
-  const leafCols = pal.leaves.map(hexToRgb);
-  const woodCol = hexToRgb(pal.wood);
   const L = resolveParams(base, shapeT, R);
   const g = voxelGrid();
-
-  const leafAt = (x, y, z, H) => {
-    // manchas de cor por ruído (como os "clumps" do ICQR) + topo um pouco mais claro
-    const n = P.noise3(x * .11 + 40, y * .11, z * .11);
-    const idx = Math.min(leafCols.length - 1, Math.floor(clamp01(n * .5 + .5 + (R() - .5) * .35) * leafCols.length));
-    return shiftHsl(leafCols[idx], 0, 0, (y / Math.max(1, H) - .6) * .06 + (R() - .5) * .05);
-  };
-  const woodAt = (x, y, z) => {
-    if (base.stripes && pal.wood2 && hash3(x * 3 + z, y, seed) < .2) return hexToRgb(pal.wood2);
-    return shiftHsl(woodCol, 0, 0, (R() - .5) * .05);
-  };
 
   const H = Math.max(3, Math.round(L.height / V));
   const W = Math.max(1, Math.round(L.trunkW));
@@ -385,23 +447,46 @@ export function genTreeVoxels(speciesKey, shapeT, seed, style, speciesOverrides)
     }
   }
 
-  // cores finais, flores e neve em quem está exposto em cima
-  const flowers = (pal.flowers || []).map(hexToRgb);
-  const snowCol = hexToRgb(style.snowColor || '#f4f7fa');
+  // tipos originais (madeira/folha) em ordem de iteração + estado do rng: o suficiente para recolorir
   let maxY = 0;
   for (const v of g.map.values()) maxY = Math.max(maxY, v.y);
+  const tree = { grid: g, height: maxY + 1, trunkW: W, seed, speciesKey, flowerP: L.flowers, stripes: !!base.stripes, rngState: R.state(), kinds: Uint8Array.from(g.map.values(), v => v.type) };
+  return colorTree(tree, style);
+}
+
+/* Cores finais, flores e neve em quem está exposto em cima. Recolore no lugar, repetindo
+   a mesma sequência aleatória da geração (estado do rng guardado na árvore). */
+export function colorTree(tree, style) {
+  const { grid: g, seed, speciesKey, flowerP, stripes, kinds } = tree;
+  const R = rng(tree.rngState), P = perlin(seed % 1000), maxY = tree.height - 1;
+  const pal = style.species[speciesKey];
+  const leafCols = pal.leaves.map(hexToRgb), woodCol = hexToRgb(pal.wood);
+  const leafAt = (x, y, z, H) => {
+    // manchas de cor por ruído (como os "clumps" do ICQR) + topo um pouco mais claro
+    const n = P.noise3(x * .11 + 40, y * .11, z * .11);
+    const idx = Math.min(leafCols.length - 1, Math.floor(clamp01(n * .5 + .5 + (R() - .5) * .35) * leafCols.length));
+    return shiftHsl(leafCols[idx], 0, 0, (y / Math.max(1, H) - .6) * .06 + (R() - .5) * .05);
+  };
+  const woodAt = (x, y, z) => {
+    if (stripes && pal.wood2 && hash3(x * 3 + z, y, seed) < .2) return hexToRgb(pal.wood2);
+    return shiftHsl(woodCol, 0, 0, (R() - .5) * .05);
+  };
+  const flowers = (pal.flowers || []).map(hexToRgb);
+  const snowCol = hexToRgb(style.snowColor || '#f4f7fa');
+  let i = 0;
   for (const v of g.map.values()) {
+    v.type = kinds[i++];
     if (v.type === 1) v.col = woodAt(v.x, v.y, v.z);
     else {
       v.col = leafAt(v.x, v.y, v.z, maxY);
       const exposedUp = !g.has(v.x, v.y + 1, v.z);
-      if (flowers.length && L.flowers && R() < L.flowers && exposedUp) { v.type = 3; v.col = flowers[Math.floor(R() * flowers.length)]; }
+      if (flowers.length && flowerP && R() < flowerP && exposedUp) { v.type = 3; v.col = flowers[Math.floor(R() * flowers.length)]; }
     }
     if (style.snow > 0 && !g.has(v.x, v.y + 1, v.z) && hash3(v.x, v.z, seed) < style.snow && v.y > 1) {
       v.type = 3; v.col = shiftHsl(snowCol, 0, 0, (R() - .5) * .03);
     }
   }
-  return { grid: g, height: maxY + 1, trunkW: W };
+  return tree;
 }
 
 /* ---------- mesher: só faces expostas + oclusão de ambiente por vértice ----------

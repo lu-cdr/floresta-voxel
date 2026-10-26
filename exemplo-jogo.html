@@ -40,6 +40,7 @@
 <script type="module">
 import * as THREE from 'three';
 import { VegWorld, defaultProject, migrateProject } from './veg-render.js';
+import { lightAt } from './veg-core.js';
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -55,6 +56,7 @@ sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.bias = -0.0005; sun.shadow.normalBias = .04;
 const sc = sun.shadow.camera; sc.left = sc.bottom = -28; sc.right = sc.top = 28; sc.near = 1; sc.far = 200;
 scene.add(hemi, sun, sun.target);
+const sunDir = new THREE.Vector3(20, 40, 12);
 
 // 1) projeto: o mesmo JSON que o editor salva (ou o que ele deixou no navegador)
 let project = null, label = '';
@@ -66,10 +68,14 @@ function load(p, fill) {
   if (fill) { world.fillAll('arvores'); world.fillAll('grama'); }
   world.rescatterTrees();
   world.rebuildGrass();
-  const S = world.P.style;
-  scene.background = new THREE.Color(S.sky);
-  scene.fog = new THREE.Fog(S.fog, 25, 90);
-  hemi.color.set(S.hemiSky); hemi.groundColor.set(S.hemiGround); sun.color.set(S.sun);
+  // mesma hora do dia do editor
+  const S = world.P.style, L = lightAt(world.P.ecology.dayTime, S);
+  scene.background = new THREE.Color(L.sky);
+  scene.fog = new THREE.Fog(L.fog, 25, 90);
+  hemi.color.set(S.hemiSky); hemi.groundColor.set(S.hemiGround); hemi.intensity = 1.05 * L.hemiI;
+  sun.color.set(L.sunColor); sun.intensity = 2.3 * L.sunI;
+  const az = (35 + L.sunAz) * Math.PI / 180, el = L.sunEl * Math.PI / 180;
+  sunDir.set(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az)).multiplyScalar(45);
   player.position.set(0, world.heightAt(0, 0), 0);
   document.getElementById('src').textContent = label || 'Floresta procedural padrão';
 }
@@ -131,7 +137,7 @@ function frame(now) {
   camPos.set(p.x + 7, p.y + 7.5, p.z + 9);
   camera.position.lerp(camPos, 1 - Math.exp(-dt * 5));
   camera.lookAt(look.set(p.x, p.y + .8, p.z));
-  sun.position.set(p.x + 20, p.y + 40, p.z + 12); sun.target.position.copy(p);
+  sun.position.copy(p).add(sunDir); sun.target.position.copy(p);
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
