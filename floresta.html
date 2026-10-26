@@ -113,6 +113,33 @@
     font: 500 12px/1.35 var(--f-body); color: var(--ink); white-space: nowrap;
   }
   .tip[hidden] { display: none; }
+  .clock kbd { font: 500 10px/1 var(--f-pixel); color: var(--muted); }
+  /* modo foto: só a cena e uma barra pequena */
+  body.photo .brand, body.photo .tools, body.photo .clock, body.photo .hint, body.photo .lil-gui.root, body.photo .tip { display: none !important; }
+  .photobar {
+    position: fixed; z-index: 6; bottom: 16px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 32px);
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 10px 8px 14px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
+    font: 500 12.5px/1.2 var(--f-body); color: var(--muted);
+  }
+  .photobar[hidden] { display: none; }
+  .photobar strong { font: 700 14px/1 var(--f-display); color: var(--ink); }
+  .photobar label { display: flex; align-items: center; gap: 6px; }
+  .photobar select { font: 500 12.5px var(--f-body); color: var(--ink); background: var(--chip); border: 1px solid var(--line); border-radius: 8px; padding: 5px; }
+  .photobar .hour output { font: 500 12px var(--f-pixel); color: var(--ink); min-width: 5ch; }
+  .photobar .hour input { width: 110px; accent-color: var(--accent); }
+  .photobar .chk input { accent-color: var(--accent); margin: 0; }
+  .photobar button {
+    font: 600 12.5px/1 var(--f-body); color: var(--ink); background: var(--chip); border: 1px solid transparent;
+    border-radius: 9px; padding: 8px 10px; cursor: pointer; transition: transform .12s ease;
+  }
+  .photobar button:active { transform: scale(.97); }
+  .photobar button.primary { background: var(--accent); color: var(--on-accent); }
+  .photobar button:disabled { opacity: .5; cursor: progress; }
+  .photobar .pmsg { flex-basis: 100%; color: var(--accent); min-height: 1.2em; }
+  .photobar .pmsg:empty { display: none; }
+  .flash { position: fixed; inset: 0; z-index: 7; background: #fff; opacity: 0; pointer-events: none; transition: opacity .35s ease; }
+  .flash.on { opacity: .75; transition: none; }
   .tip b { font-weight: 600; }
   .tip span { color: var(--muted); }
 
@@ -212,12 +239,25 @@
     <button data-days="season" title="Ir para o primeiro dia da próxima estação">Próxima estação</button>
   </div>
   <label class="chk" title="As cores da floresta mudam com a estação"><input type="checkbox" id="cSeasonal"> Cores da estação</label>
+  <button id="cPhoto" title="Esconder a interface e salvar uma imagem (P)">Foto <kbd>P</kbd></button>
   <div class="mode" role="radiogroup" aria-label="Modo">
     <button data-mode="criativo" role="radio" title="Tudo adulto, o tempo só muda luz e cor">Criativo</button>
     <button data-mode="ecossistema" role="radio" title="Árvores nascem, crescem, envelhecem e viram toco com o tempo">Ecossistema</button>
   </div>
 </div>
 <div class="tip" id="tip" hidden></div>
+<div class="photobar" id="photobar" role="group" aria-label="Modo foto" hidden>
+  <strong>Modo foto</strong>
+  <label class="hour"><output id="pHour">10:00</output><input id="pTime" type="range" min="0" max=".995" step=".005" aria-label="Hora do dia"></label>
+  <button id="pSeason" title="Ir para a próxima estação">Próxima estação</button>
+  <label>Moldura <select id="pFrame"><option value="nenhuma">sem moldura</option><option value="passe-partout">passe-partout</option><option value="polaroide">polaroide</option></select></label>
+  <label>Tamanho <select id="pScale"><option value="2">2×</option><option value="4">4×</option></select></label>
+  <label class="chk"><input type="checkbox" id="pMeta"> Legenda</label>
+  <button id="pShot" class="primary">Salvar PNG</button>
+  <button id="pExit" title="Voltar a editar (Esc)">Sair</button>
+  <span class="pmsg" id="pMsg" aria-live="polite"></span>
+</div>
+<div class="flash" id="flash"></div>
 <div class="hint" id="hint">Arraste para pintar · botão direito gira · roda dá zoom · Shift apaga · [ ] raio · Ctrl+Z desfaz</div>
 <input type="file" id="fileProject" accept=".json,application/json" hidden>
 <input type="file" id="fileStyle" accept=".json,application/json" hidden>
@@ -239,6 +279,7 @@ import { VegWorld, defaultProject, migrateProject, treeGeometry, bakedTreeMesh }
 import { SPECIES, SPECIES_KEYS, STYLES, SEASONS, STAGE_LABELS, seasonAt, seasonStyle, lightAt, genTreeVoxels, meshVoxels, variantSeed } from './veg-core.js';
 import { History, snapshotLayers, makePatch, applyPatch } from './veg-history.js';
 import { SOILS, explainCell } from './veg-eco.js';
+import { capturePhoto, photoFileName, maxPhotoScale } from './veg-photo.js';
 
 const $ = s => document.querySelector(s);
 const canvas = $('#scene');
@@ -444,7 +485,7 @@ function stamp(e, first) {
 canvas.addEventListener('pointerdown', e => {
   pointers.add(e.pointerId);
   if (pointers.size > 1) { endStroke(); return; } // segundo dedo: vira gesto de câmera
-  if (brush.tool !== 'camera' && e.button === 0) {
+  if (brush.tool !== 'camera' && e.button === 0 && !photoOn) {
     painting = true;
     canvas.setPointerCapture(e.pointerId);
     stroke = { before: snapshotLayers(world.maskLayers()), bounds: null, label: '' };
@@ -457,6 +498,7 @@ canvas.addEventListener('pointermove', e => {
     const hit = pick(e);
     if (hit) { cursor.x = hit.x; cursor.z = hit.z; cursor.on = true; }
   }
+  if (photoOn) return;
   if (viewLayer.key !== 'nenhum') probeAt(e);
   treeTip(e);
 });
@@ -476,6 +518,9 @@ addEventListener('keydown', e => {
     return;
   }
   if (e.ctrlKey || e.metaKey || e.altKey) return; // não roubar atalhos do navegador
+  if (k === 'escape' && photoOn) { setPhoto(false); return; }
+  if (k === 'p') { setPhoto(!photoOn); return; }
+  if (photoOn) return;
   if (k === 'c') setTool('camera');
   else if (k === '1') setTool('arvores');
   else if (k === '2') setTool('grama');
@@ -901,6 +946,58 @@ $('#cSeasonal').addEventListener('change', e => {
   syncClock(); dirty.save = performance.now();
 });
 
+/* ---------- modo foto ----------
+   Esconde a interface, deixa só hora/estação/moldura e salva o PNG em 2× ou 4×. */
+let photoOn = false;
+function setPhoto(on) {
+  photoOn = on;
+  document.body.classList.toggle('photo', on);
+  $('#photobar').hidden = !on;
+  ring.visible = !on && brush.tool !== 'camera';
+  // na foto o botão esquerdo gira a câmera, como na ferramenta Câmera
+  if (on) controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+  else applyToolToControls();
+  if (on) {
+    $('#pFrame').value = P.photo.frame; $('#pMeta').checked = P.photo.showMeta;
+    $('#pScale').querySelector('[value="4"]').disabled = maxPhotoScale(renderer) < 4;
+    syncPhotoClock(); $('#pMsg').textContent = '';
+  }
+}
+function syncPhotoClock() { $('#pHour').textContent = hourLabel(eco().dayTime); $('#pTime').value = eco().dayTime; }
+$('#cPhoto').addEventListener('click', () => setPhoto(true));
+$('#pExit').addEventListener('click', () => setPhoto(false));
+$('#pTime').addEventListener('input', e => { eco().dayTime = +e.target.value; syncPhotoClock(); syncClock(); applyLook(); dirty.save = performance.now(); });
+$('#pSeason').addEventListener('click', () => { advance(eco().seasonLen - (eco().tick % eco().seasonLen)); $('#pMsg').textContent = $('#busy').textContent; });
+$('#pFrame').addEventListener('change', e => { P.photo.frame = e.target.value; dirty.save = performance.now(); });
+$('#pMeta').addEventListener('change', e => { P.photo.showMeta = e.target.checked; dirty.save = performance.now(); });
+// espécies cujas árvores estão no enquadramento (árvores vivas e plantas do sub-bosque)
+function visibleSpecies() {
+  const fr = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+  const v = new THREE.Vector3(), seen = new Set();
+  for (const t of world.trees) if (!['morta', 'toco'].includes(t.life?.stage) && fr.containsPoint(v.set(t.x, t.y + 1, t.z))) seen.add(SPECIES[t.species].label);
+  return [...seen];
+}
+$('#pShot').addEventListener('click', async () => {
+  const btn = $('#pShot'), s = seasonAt(eco());
+  btn.disabled = true; $('#pMsg').textContent = 'Revelando…';
+  const meta = P.photo.showMeta ? {
+    title: 'Floresta Voxel',
+    lines: [`${s.label} · dia ${s.day}${s.year ? ' · ano ' + (s.year + 1) : ''} · ${hourLabel(eco().dayTime)}`,
+      `semente ${P.seed} · estilo ${P.styleName}`, visibleSpecies().join(', ')],
+  } : null;
+  try {
+    ring.visible = false; world.U.uPush.value.w = 0;
+    const r = await capturePhoto({ renderer, scene, camera, scale: +$('#pScale').value, frame: P.photo.frame, meta });
+    renderer.render(scene, camera); // o setSize limpou o canvas da tela
+    download(photoFileName(meta), r.blob);
+    $('#flash').classList.add('on'); requestAnimationFrame(() => requestAnimationFrame(() => $('#flash').classList.remove('on')));
+    $('#pMsg').textContent = `Foto salva: ${r.width}×${r.height}${r.scale < +$('#pScale').value ? ' (a placa de vídeo limitou o tamanho)' : ''}.`;
+  } catch (err) {
+    console.error(err);
+    $('#pMsg').textContent = 'Não deu para salvar: ' + err.message + '. Tente 2×.';
+  } finally { btn.disabled = false; }
+});
+
 /* ---------- laço ---------- */
 function resize() {
   const w = innerWidth, h = innerHeight;
@@ -927,7 +1024,7 @@ function frame(now) {
     store.set('floresta-voxel:projeto', JSON.stringify({ ...world.P, masks: world.packMasks() }));
     dirty.save = 0;
   }
-  world.U.uPush.value.set(cursor.x, cursor.z, Math.max(1, brush.radius * .5), cursor.on && brush.tool !== 'camera' ? .5 : 0);
+  world.U.uPush.value.set(cursor.x, cursor.z, Math.max(1, brush.radius * .5), cursor.on && brush.tool !== 'camera' && !photoOn ? .5 : 0);
   world.update(t);
   if (ring.visible) updateRing();
   if (world.stats.fila) busy(`Gerando variantes… ${world.stats.fila} na fila`);

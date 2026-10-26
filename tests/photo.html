@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Teste do modo foto</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@700&family=Instrument+Sans:wght@500&display=swap" rel="stylesheet">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
+<style>
+  body{margin:0;padding:16px;background:#fbf8f2;color:#29251f;font-family:"Instrument Sans",sans-serif}
+  #cena{display:block;width:480px;height:320px;border:1px solid #dcd2c1}
+  #fotos{display:flex;flex-wrap:wrap;gap:16px;margin-top:16px}
+  #fotos figure{margin:0;max-width:420px}
+  #fotos img{max-width:100%;border:1px solid #dcd2c1;background:#ddd}
+  figcaption{font-size:13px;color:#6c6455}
+  #info{white-space:pre;font:12px monospace}
+</style>
+</head>
+<body>
+<canvas id="cena" width="480" height="320"></canvas>
+<div id="fotos"></div>
+<div id="info">rodando...</div>
+<script type="module">
+import * as THREE from 'three';
+import { capturePhoto, photoFileName, maxPhotoScale } from '../veg-photo.js';
+
+const canvas = document.getElementById('cena');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(1);
+renderer.setSize(480, 320, false);
+renderer.shadowMap.enabled = true;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#bfd8e8');
+const camera = new THREE.PerspectiveCamera(45, 480 / 320, 0.1, 100);
+camera.position.set(6, 5, 8); camera.lookAt(0, 0.5, 0);
+const chao = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), new THREE.MeshStandardMaterial({ color: '#8fb36a' }));
+chao.rotation.x = -Math.PI / 2; chao.receiveShadow = true; scene.add(chao);
+['#b5623a', '#4f7f4a', '#d9b44a', '#6a7fb5'].forEach((c, i) => {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1 + i * 0.5, 1), new THREE.MeshStandardMaterial({ color: c }));
+  m.position.set(i * 1.5 - 2.2, (1 + i * 0.5) / 2, (i % 2) * 1.2); m.castShadow = true; scene.add(m);
+});
+scene.add(new THREE.HemisphereLight('#ffffff', '#8a7a60', 0.6));
+const sol = new THREE.DirectionalLight('#fff2d0', 2.2);
+sol.position.set(5, 8, 4); sol.castShadow = true; sol.shadow.mapSize.set(1024, 1024);
+Object.assign(sol.shadow.camera, { left: -8, right: 8, top: 8, bottom: -8 }); sol.shadow.camera.updateProjectionMatrix();
+scene.add(sol);
+renderer.render(scene, camera);
+
+const meta = { title: 'Floresta Voxel', lines: ['Outono · dia 3 · 10:05', 'semente 1234 · estilo Outono ICQR', 'Carvalho, Pinheiro, Bétula'] };
+const resultado = [];
+let erro = null;
+const antes = { size: renderer.getSize(new THREE.Vector2()).toArray(), pr: renderer.getPixelRatio(), aspect: camera.aspect, bufW: canvas.width, bufH: canvas.height };
+try {
+  for (const frame of ['nenhuma', 'passe-partout', 'polaroide']) {
+    const t0 = performance.now();
+    const r = await capturePhoto({ renderer, scene, camera, scale: 2, frame, meta });
+    const ms = Math.round(performance.now() - t0);
+    resultado.push({ frame, width: r.width, height: r.height, size: r.blob.size, scale: r.scale, ms });
+    const fig = document.createElement('figure');
+    const img = new Image(); img.src = URL.createObjectURL(r.blob);
+    const cap = document.createElement('figcaption'); cap.textContent = `${frame} · ${r.width}x${r.height} · ${photoFileName(meta)}`;
+    fig.append(img, cap); document.getElementById('fotos').append(fig);
+  }
+} catch (e) { erro = String(e && e.stack || e); }
+const depois = { size: renderer.getSize(new THREE.Vector2()).toArray(), pr: renderer.getPixelRatio(), aspect: camera.aspect, bufW: canvas.width, bufH: canvas.height };
+window.__photoResult = resultado;
+window.__photoError = erro;
+window.__photoRestore = { antes, depois, ok: JSON.stringify(antes) === JSON.stringify(depois), maxScale: maxPhotoScale(renderer) };
+document.getElementById('info').textContent = JSON.stringify({ resultado, erro, restore: window.__photoRestore }, null, 1);
+window.__photoDone = true;
+</script>
+</body>
+</html>

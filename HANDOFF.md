@@ -104,3 +104,11 @@ Abrir: preview `vegetacao` → `http://localhost:8767/floresta.html`.
 3. **TIGHT:** Tempo — refazer toda a flora 19 ms (só em troca de estação ou parâmetro; pincel refaz só os chunks tocados); 165 fps com 6.448 plantas. Integridade — determinística por posição (teste de localidade), estilos antigos sem `flora` caem no preset. Game feel — nota explicando onde cada planta gosta de nascer + overlay "Bom para…". Harmonia — mesmo voxel/paleta sazonal, sem sombra própria (pequenas). Testes — 54 em `npm test`.
 4. **Verificação:** Playwright: outono 3.162 plantas → inverno 1.222 (sem flores) → primavera 6.448; pincel de flora + Ctrl+Z exato; console sem erros.
 5. **Riscos/continuação:** sub-bosque não entra no export GLB/`baked` ainda; projetos v1 passam a mostrar sub-bosque sob as árvores (melhoria visual, não quebra).
+
+### Incremento 6 — Modo foto (2026-10-26)
+
+1. **Entrega:** botão **Foto** na barra de tempo (tecla P; Esc sai). Some toda a interface; fica uma barra com hora, próxima estação, moldura (sem / passe-partout / polaroide), tamanho 2× ou 4×, legenda e **Salvar PNG**. Arrastar gira a câmera. A legenda traz estação, dia, hora, semente, estilo e as espécies que aparecem no enquadramento. Clarão de câmera e aviso com o tamanho salvo.
+2. **Arquivos/contratos:** `veg-photo.js` novo (trilha Sonnet): `capturePhoto({ renderer, scene, camera, scale, frame, meta })` → `{ blob, width, height, scale }`, `photoFileName`, `maxPhotoScale`; `tests/photo.html` (página de teste das molduras). `project.photo = { frame, showMeta }` persistido. 4× é desabilitado quando a GPU não comporta.
+3. **TIGHT:** Tempo — captura 2× com polaroide ≈ 0,4 s (sem `preserveDrawingBuffer`; canvas volta ao tamanho original e é redesenhado). Integridade — moldura/legenda salvas no projeto. Game feel — "Revelando…", clarão, mensagem com dimensões, erro legível sugerindo 2×. Harmonia — mesmas cores/fontes nas molduras. Testes — `npm test` 54 + página de teste das molduras.
+4. **Verificação:** Playwright: P → polaroide + legenda + 17:17 → download `floresta-voxel-2026-10-26-0846.png` 2783×3088, Esc volta; console sem erros.
+5. **Riscos/continuação:** sem profundidade de campo nem clima (clima é do Marco 2); "álbum de estações" do GDD ainda não existe.
