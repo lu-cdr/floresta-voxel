@@ -134,6 +134,11 @@ export const STYLES = {
     sky: '#ebe5d9', fog: '#e4dccd', sun: '#fff1dc', hemiSky: '#fffaf0', hemiGround: '#b3a894',
     terrain: { low: '#c9b48a', mid: '#8f7f2c', high: '#7a6f2a', cliff: '#9a8162', grass: '#7f7a2e', litter: '#8a5a2a' },
     grass: { base: '#5e6a26', tip: '#a49432' },
+    flora: {
+      samambaia: { leaves: ['#8a4a1c', '#a8741f', '#7a5a1e', '#b8832a'] },
+      flor: { stem: '#5a5a24', petals: ['#c4473a', '#e0a040', '#d8782a', '#b5352f'] },
+      musgo: { leaves: ['#4f5e24', '#5e6a26', '#44521f'] },
+    },
     species: {
       carvalho: { leaves: ['#c8621f', '#ad3c19', '#c97a22', '#9c4c18', '#bb6a24'], wood: '#553826' },
       betula: { leaves: ['#d1a235', '#c08a2a', '#ddb447', '#b37a22'], wood: '#e8e0d0', wood2: '#3a3128' },
@@ -147,6 +152,11 @@ export const STYLES = {
     sky: '#eef0e6', fog: '#e6eadc', sun: '#fff6e6', hemiSky: '#fbfff4', hemiGround: '#a9b390',
     terrain: { low: '#d6c79a', mid: '#5f9a3c', high: '#4f8a34', cliff: '#9b8a6a', grass: '#4f8a34', litter: '#6f8a3e' },
     grass: { base: '#3f7a2c', tip: '#8cc05a' },
+    flora: {
+      samambaia: { leaves: ['#3f8a30', '#4f9a3c', '#357a2e', '#5aa844'] },
+      flor: { stem: '#3f7a2c', petals: ['#f0f0e8', '#e8c040', '#c4527d', '#8a6ad0', '#e86a4a', '#6aa0e0'] },
+      musgo: { leaves: ['#4a8a34', '#3f7a2c', '#5a9a3c'] },
+    },
     species: {
       carvalho: { leaves: ['#468a35', '#357a2e', '#539a3c', '#2a6428', '#3c8232'], wood: '#583a26' },
       betula: { leaves: ['#7ab348', '#69a33c', '#8cc05a', '#5c9634'], wood: '#ece6da', wood2: '#3a3128' },
@@ -160,6 +170,11 @@ export const STYLES = {
     sky: '#e3ecef', fog: '#d6e2e2', sun: '#fff4d6', hemiSky: '#f4fbff', hemiGround: '#8f9c78',
     terrain: { low: '#cdbf8e', mid: '#407f30', high: '#356d2a', cliff: '#8a7b5c', grass: '#3d7a2e', litter: '#4a6a2a' },
     grass: { base: '#2f6a26', tip: '#6aa83c' },
+    flora: {
+      samambaia: { leaves: ['#2a6a26', '#357a2e', '#1f5a22', '#3f8a32'] },
+      flor: { stem: '#2f6a26', petals: ['#d84a4a', '#f0d040', '#f0f0e8'] },
+      musgo: { leaves: ['#2f6a2a', '#256024', '#3a7430'] },
+    },
     species: {
       carvalho: { leaves: ['#2f6f2a', '#3c7f32', '#255c24', '#468a35'], wood: '#4f3422' },
       betula: { leaves: ['#4f9a3c', '#3f8a30', '#5ca848'], wood: '#e6e0d2', wood2: '#33291f' },
@@ -173,6 +188,11 @@ export const STYLES = {
     sky: '#e8edf2', fog: '#dfe6ee', sun: '#f4f6ff', hemiSky: '#f6faff', hemiGround: '#a8b0b8',
     terrain: { low: '#e9eef2', mid: '#dde5ec', high: '#f2f5f8', cliff: '#8c8a88', grass: '#9aa79a', litter: '#8f8578', snow: '#f4f7fa' },
     grass: { base: '#6f7f68', tip: '#c8d2c4' },
+    flora: {
+      samambaia: { leaves: ['#3a5a44', '#44624a', '#32503c'] },
+      flor: { stem: '#5a6a52', petals: ['#d8dce4', '#b8bcd0'] },
+      musgo: { leaves: ['#4a6a4c', '#3f5e44', '#56745a'] },
+    },
     species: {
       carvalho: { leaves: ['#6a5442', '#5a4636', '#7a624e'], wood: '#4a3a2e' },
       betula: { leaves: ['#8a7a5a', '#7a6a4c'], wood: '#ece8e0', wood2: '#33291f' },
@@ -278,6 +298,8 @@ export function defaultProject() {
     species: structuredClone(SPECIES),
     grass: { density: 16, heightMin: .22, heightMax: .75, noiseInfluence: .7, lean: .5, width: .07, style: 'voxel', underTrees: true },
     wind: { strength: .45, freq: 1.2, dir: 35, gust: .6 },
+    // sub-bosque: candidatos por m², quanto da máscara de árvores vira intenção de flora, mistura
+    flora: { density: 1.2, variants: 3, underTrees: .7, mix: { samambaia: 1, flor: 1, musgo: .8 } },
     // tick = dias desde o início; começa no 1º dia do outono, combinando com o estilo padrão.
     // seasonal: o estilo segue a estação (seasonStyle) em vez de ficar fixo.
     // epoch: dia em que o modo Ecossistema começou (idade das árvores sem registro em plants)
@@ -657,6 +679,101 @@ export function scatterGrass(cfg) {
     });
   }
   return blades;
+}
+
+/* ---------- sub-bosque (GDD §5.2) ----------
+   Plantas minúsculas em voxels de meia escala (o chamador usa meshVoxels(planta, style.voxel * .5)).
+   Tipos: 1 caule, 2 folha (o shader balança e colore), 3 acento (pétalas). */
+export const FLORA = { samambaia: { label: 'Samambaia' }, flor: { label: 'Flores' }, musgo: { label: 'Musgo' } };
+export const FLORA_KEYS = Object.keys(FLORA);
+// flor só no calor: multiplicador por estação (primavera, verão, outono, inverno)
+const FLORA_SEASON = { flor: [1.3, 1, .4, 0] };
+
+export function genFloraVoxels(kind, shapeT, seed, style) {
+  const R = rng(seed), P = perlin(seed % 1000), g = voxelGrid();
+  const t = clamp01(shapeT + (R() - .5) * .2);
+  const pal = style.flora[kind];
+  const leafCols = (pal.leaves || pal.petals).map(hexToRgb);
+  const leaf = (x, y, z, type = 2) => {
+    const n = P.noise3(x * .5 + 40, y * .5, z * .5);
+    const c = leafCols[Math.min(leafCols.length - 1, Math.floor(clamp01(n * .5 + .5 + (R() - .5) * .4) * leafCols.length))];
+    g.put(x, y, z, type, shiftHsl(c, 0, 0, (R() - .5) * .06 + y * .012));
+  };
+  if (kind === 'samambaia') {
+    const H = Math.round(lerp(3, 6, t)), nf = 5 + Math.round(R() * 2 + t * 2), reach = 1.5 + H * .7;
+    for (let y = 0; y < H; y++) leaf(0, y, 0);               // fronde central, reta
+    for (let f = 0; f < nf; f++) {
+      const a = (f / nf) * Math.PI * 2 + R() * .6, ca = Math.cos(a), sa = Math.sin(a);
+      const len = Math.round(reach * (.8 + R() * .35)) + 1, hh = (H - 1) * (.75 + R() * .25);
+      for (let s = 1; s <= len; s++) {
+        const u = s / len, d = u * reach;
+        const x = Math.round(ca * d), z = Math.round(sa * d), y = Math.round(hh * Math.sin(Math.PI * u * .8));
+        leaf(x, y, z);
+        if (s > 1 && s % 2 === 0) { leaf(x + Math.round(-sa), y, z + Math.round(ca)); leaf(x + Math.round(sa), y, z + Math.round(-ca)); } // folíolos
+      }
+    }
+  } else if (kind === 'flor') {
+    const Hs = Math.round(lerp(2, 4, t)), nh = 1 + Math.round(R() * 1.2 + t), petals = pal.petals.map(hexToRgb);
+    const stem = hexToRgb(pal.stem), pick = () => petals[Math.floor(R() * petals.length)];
+    const head = (cx, y, cz, col, mid) => {
+      for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]])
+        g.put(cx + dx, y, cz + dz, 3, dx || dz ? shiftHsl(col, 0, 0, (R() - .5) * .05) : mid);
+    };
+    for (let y = 0; y < Hs; y++) g.put(0, y, 0, 1, shiftHsl(stem, 0, 0, (R() - .5) * .05), true);
+    const c0 = pick();
+    head(0, Hs, 0, c0, shiftHsl(c0, .02, 0, -.15));
+    for (let h = 1; h < nh; h++) {
+      const a = R() * Math.PI * 2, dx = Math.round(Math.cos(a) * 2), dz = Math.round(Math.sin(a) * 2), y = Math.max(1, Hs - 1 - Math.floor(R() * 2));
+      g.put(Math.sign(dx), y - 1, Math.sign(dz), 1, stem, true);
+      g.put(dx, y, dz, 1, stem, true);
+      const c = pick();
+      head(dx, y + 1, dz, c, shiftHsl(c, .02, 0, -.15));
+    }
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (R() < .5) leaf(dx, 0, dz);
+    leaf(0, 1, R() < .5 ? 1 : -1);
+  } else { // musgo: almofada baixa e irregular
+    const rr = lerp(2, 3.5, t), ri = Math.ceil(rr * 1.3) + 1;
+    for (let dz = -ri; dz <= ri; dz++) for (let dx = -ri; dx <= ri; dx++) {
+      const d = Math.hypot(dx, dz), edge = rr * (.78 + .3 * P.noise2(dx * .6 + seed % 97, dz * .6));
+      if (d > edge && !(dx === 0 && dz === 0)) continue;
+      leaf(dx, 0, dz);
+      if (d < edge * .6 && R() < .65) leaf(dx, 1, dz);
+    }
+  }
+  let maxY = 0;
+  for (const v of g.map.values()) maxY = Math.max(maxY, v.y);
+  return { grid: g, height: maxY + 1, trunkW: 1 };
+}
+
+/* Distribuição do sub-bosque por chunk: mesmo esquema de scatterGrass (hash da posição, então
+   pintar num canto não muda outro chunk). A espécie sai dos pesos adequação × mix × estação. */
+export function scatterFlora(cfg) {
+  const { x0, z0, x1, z1, seed, maskAt, suitAt, heightAt, blockedAt, p } = cfg;
+  const season = Math.min(3, Math.max(0, cfg.season | 0));
+  const out = [], w = [0, 0, 0], step = 1 / Math.sqrt(Math.max(.01, p.density));
+  const mul = FLORA_KEYS.map(k => FLORA_SEASON[k]?.[season] ?? 1);
+  for (let z = z0; z < z1; z += step) for (let x = x0; x < x1; x += step) {
+    const ix = Math.round(x * 64), iz = Math.round(z * 64);
+    const px = x + hash3(ix, iz, seed) * Math.min(step, x1 - x), pz = z + hash3(ix, iz, seed + 1) * Math.min(step, z1 - z);
+    const m = maskAt(px, pz);
+    if (m <= 0) continue;
+    if (blockedAt && blockedAt(px, pz)) continue;
+    let sum = 0;
+    for (let k = 0; k < 3; k++) { w[k] = clamp01(suitAt(FLORA_KEYS[k], px, pz)) * Math.max(0, p.mix[FLORA_KEYS[k]] ?? 0) * mul[k]; sum += w[k]; }
+    if (sum <= 0) continue;
+    let target = hash3(ix, iz, seed + 2) * sum, c = 0;
+    while (c < 2 && target >= w[c]) { target -= w[c]; c++; }
+    if (w[c] <= 0) c = w.findIndex(v => v > 0);
+    const kind = FLORA_KEYS[c], suit = clamp01(suitAt(kind, px, pz) * mul[c]);
+    if (hash3(ix, iz, seed + 3) > m * suit) continue;
+    const variant = Math.floor(hash3(ix, iz, seed + 4) * Math.max(1, p.variants | 0));
+    out.push({
+      kind, x: px, y: heightAt(px, pz), z: pz,
+      rot: hash3(ix, iz, seed + 5) * Math.PI * 2, scale: lerp(.7, 1.3, hash3(ix, iz, seed + 6)),
+      variant, key: 'f:' + kind + ':' + variant,
+    });
+  }
+  return out;
 }
 
 /* ---------- ciclo de vida (GDD §5.3) ----------

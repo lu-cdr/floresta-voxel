@@ -7,8 +7,8 @@ import {
   SPECIES_KEYS, STYLES, defaultProject, migrateProject, sampleField, genTreeVoxels, colorTree, meshVoxels,
   scatterTrees, scatterGrass, bucketT, variantSeed, hexToRgb, srgbToLinear, shiftHsl, hash3, clamp01, lerp,
 } from './veg-core.js';
-import { seasonAt, lifeOf, stageKey, deadVariant } from './veg-core.js';
-import { SOILS, computeEco, suitabilityGrid, siteQuality } from './veg-eco.js';
+import { seasonAt, lifeOf, stageKey, deadVariant, genFloraVoxels, scatterFlora } from './veg-core.js';
+import { SOILS, computeEco, suitability, suitabilityGrid, siteQuality } from './veg-eco.js';
 
 // o projeto padrão e a migração moram no núcleo (sem three), para Node/Godot lerem igual
 export { defaultProject, migrateProject };
@@ -142,7 +142,10 @@ export class VegWorld {
     this.group = new THREE.Group();
     this.treeGroup = new THREE.Group();
     this.grassGroup = new THREE.Group();
-    this.group.add(this.treeGroup, this.grassGroup);
+    this.floraGroup = new THREE.Group();
+    this.group.add(this.treeGroup, this.grassGroup, this.floraGroup);
+    this.floraVariants = new Map(); // 'f:tipo:variante' → { geo, mesh, cap, tint }
+    this.floraChunks = new Map();   // "cx,cz" → plantas do chunk
     scene.add(this.group);
     this.treeMats = vegMaterials(this.U);
     this.grassMats = vegMaterials(this.U, { grass: true });
@@ -153,7 +156,7 @@ export class VegWorld {
     this.trees = [];
     this.grassChunks = new Map();  // "cx,cz" → InstancedMesh
     this.overlay = 'nenhum';
-    this.stats = { arvores: 0, grama: 0, variantes: 0, fila: 0, recolor: 0, genMs: 0 };
+    this.stats = { arvores: 0, grama: 0, flora: 0, variantes: 0, fila: 0, recolor: 0, genMs: 0 };
     this.setSize(project.size, project.masks);
   }
 
@@ -167,6 +170,7 @@ export class VegWorld {
     this.grassMask = new Float32Array(n * n);
     this.speciesMask = new Int8Array(n * n).fill(-1);
     this.soilMask = new Uint8Array(n * n); // índice em SOILS (0 = terra)
+    this.floraMask = new Float32Array(n * n); // intenção de sub-bosque pintada (além da que vem sob as árvores)
     this.eco = null;
     if (masks) this.loadMasks(masks);
     this.rebuildTerrain();
@@ -181,7 +185,7 @@ export class VegWorld {
   // value: espécie forçada (árvores) ou tipo de solo (solo)
   paint(layer, x, z, radius, strength, hardness, erase, speciesIdx = -1) {
     if (layer === 'solo') return this.paintSoil(x, z, radius, strength, hardness, erase ? 0 : speciesIdx);
-    const arr = layer === 'grama' ? this.grassMask : this.treeMask;
+    const arr = layer === 'grama' ? this.grassMask : layer === 'flora' ? this.floraMask : this.treeMask;
     const n = this.maskN, h = this.P.size / 2, r = this.res;
     const i0 = Math.max(0, Math.floor((x - radius + h) * r)), i1 = Math.min(n - 1, Math.ceil((x + radius + h) * r));
     const j0 = Math.max(0, Math.floor((z - radius + h) * r)), j1 = Math.min(n - 1, Math.ceil((z + radius + h) * r));
@@ -194,13 +198,13 @@ export class VegWorld {
       if (erase) arr[k] = Math.max(0, arr[k] - a);
       else {
         arr[k] = Math.min(1, arr[k] + a);
-        if (layer !== 'grama' && a > .05) this.speciesMask[k] = speciesIdx;
+        if (layer === 'arvores' && a > .05) this.speciesMask[k] = speciesIdx;
       }
     }
     return { x0: x - radius, x1: x + radius, z0: z - radius, z1: z + radius };
   }
   // camadas pintadas que o histórico guarda (todas maskN × maskN)
-  maskLayers() { return { trees: this.treeMask, grass: this.grassMask, species: this.speciesMask, soil: this.soilMask }; }
+  maskLayers() { return { trees: this.treeMask, grass: this.grassMask, species: this.speciesMask, soil: this.soilMask, flora: this.floraMask }; }
   // bounds em mundo → retângulo inclusivo de células da máscara (mesma conta do paint)
   maskRect(b) {
     const n = this.maskN, h = this.P.size / 2, r = this.res;
@@ -241,8 +245,8 @@ export class VegWorld {
     return i < 0 || j < 0 || i >= s || j >= s ? -1 : j * s + i;
   }
   fillAll(layer, v = 1) {
-    (layer === 'grama' ? this.grassMask : this.treeMask).fill(v);
-    if (layer !== 'grama') this.speciesMask.fill(-1);
+    (layer === 'grama' ? this.grassMask : layer === 'flora' ? this.floraMask : this.treeMask).fill(v);
+    if (layer === 'arvores') this.speciesMask.fill(-1);
   }
 
   /* --- terreno em blocos --- */
@@ -458,20 +462,7 @@ export class VegWorld {
     }
     this.U.uGBase.value.set(P.style.grass.base);
     this.U.uGTip.value.set(P.style.grass.tip);
-    // grama não nasce dentro dos troncos
-    const trunks = new Map();
-    for (const t of this.trees) {
-      const k = Math.floor(t.x) + ',' + Math.floor(t.z);
-      if (!trunks.has(k)) trunks.set(k, []);
-      trunks.get(k).push(t);
-    }
-    const blocked = (x, z) => {
-      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
-        const l = trunks.get((Math.floor(x) + dx) + ',' + (Math.floor(z) + dz));
-        if (l) for (const t of l) if ((t.x - x) ** 2 + (t.z - z) ** 2 < (.35 * (t.drawScale ?? t.scale)) ** 2) return true;
-      }
-      return false;
-    };
+    const blocked = this.trunkBlocker();
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), sc = new THREE.Vector3(), p = new THREE.Vector3(), c = new THREE.Color();
     let total = 0;
     for (let cz = 0; cz < n; cz++) for (let cx = 0; cx < n; cx++) {
@@ -501,10 +492,90 @@ export class VegWorld {
       total += blades.length;
     }
     this.stats.grama = total;
+    this.rebuildFlora(bounds, blocked);
+  }
+  // plantas não nascem dentro dos troncos
+  trunkBlocker() {
+    const trunks = new Map();
+    for (const t of this.trees) {
+      const k = Math.floor(t.x) + ',' + Math.floor(t.z);
+      if (!trunks.has(k)) trunks.set(k, []);
+      trunks.get(k).push(t);
+    }
+    return (x, z) => {
+      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+        const l = trunks.get((Math.floor(x) + dx) + ',' + (Math.floor(z) + dz));
+        if (l) for (const t of l) if ((t.x - x) ** 2 + (t.z - z) ** 2 < (.35 * (t.drawScale ?? t.scale)) ** 2) return true;
+      }
+      return false;
+    };
+  }
+
+  /* --- sub-bosque: samambaia, flores e musgo onde o lugar serve ---
+     Distribuído por chunk como a grama, desenhado como as árvores: uma InstancedMesh por variante
+     (poucas chamadas de desenho). Intenção = máscara de flora pintada ou, mais fraca, a das árvores. */
+  rebuildFlora(bounds, blocked = this.trunkBlocker()) {
+    const CH = 16, s = this.P.size, h = s / 2, n = Math.ceil(s / CH), P = this.P, F = P.flora;
+    const eco = this.getEco(), season = seasonAt(P.ecology).index;
+    const suitAt = (kind, x, z) => { const k = this.ecoIndex(x, z); return k < 0 ? 0 : suitability(kind, eco, k); };
+    const maskAt = (x, z) => Math.max(this.sampleMask(this.floraMask, x, z), this.sampleMask(this.treeMask, x, z) * F.underTrees);
+    for (let cz = 0; cz < n; cz++) for (let cx = 0; cx < n; cx++) {
+      const x0 = -h + cx * CH, z0 = -h + cz * CH;
+      if (bounds && (bounds.x1 < x0 || bounds.x0 > x0 + CH || bounds.z1 < z0 || bounds.z0 > z0 + CH)) continue;
+      this.floraChunks.set(cx + ',' + cz, scatterFlora({
+        x0, z0, x1: Math.min(h, x0 + CH), z1: Math.min(h, z0 + CH), seed: P.seed + 133,
+        maskAt, suitAt, heightAt: (x, z) => this.heightAt(x, z), blockedAt: blocked, season, p: F,
+      }));
+    }
+    this.applyFlora();
+  }
+  floraVariant(key) {
+    let v = this.floraVariants.get(key);
+    if (v) return v;
+    const [, kind, vi] = key.split(':');
+    const st = this.P.style.flora ? this.P.style : { ...this.P.style, flora: STYLES['Outono ICQR'].flora }; // estilo próprio antigo sem flora
+    const plant = genFloraVoxels(kind, (+vi + .5) / Math.max(1, this.P.flora.variants), variantSeed('f' + kind, 0, vi, this.P.seed), st);
+    v = { geo: treeGeometry(meshVoxels(plant, this.P.style.voxel * .5)), mesh: null, cap: 0, tint: null };
+    this.floraVariants.set(key, v);
+    return v;
+  }
+  applyFlora() {
+    const groups = new Map();
+    for (const list of this.floraChunks.values()) for (const f of list) { if (!groups.has(f.key)) groups.set(f.key, []); groups.get(f.key).push(f); }
+    for (const [key, v] of this.floraVariants) if (!groups.has(key) && v.mesh) v.mesh.count = 0;
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), sc = new THREE.Vector3(), p = new THREE.Vector3();
+    let total = 0;
+    for (const [key, list] of groups) {
+      const v = this.floraVariant(key);
+      if (list.length > v.cap) {
+        if (v.mesh) { this.floraGroup.remove(v.mesh); v.mesh.dispose(); }
+        v.cap = Math.max(64, 1 << Math.ceil(Math.log2(list.length)));
+        v.mesh = new THREE.InstancedMesh(v.geo, this.treeMats.mat, v.cap);
+        v.mesh.receiveShadow = true; v.mesh.frustumCulled = false; // pequenas demais para valer a sombra
+        v.tint = new THREE.InstancedBufferAttribute(new Float32Array(v.cap * 3), 3);
+        v.geo.setAttribute('iTint', v.tint);
+        this.floraGroup.add(v.mesh);
+      }
+      list.forEach((f, i) => {
+        q.setFromAxisAngle(up, f.rot); sc.setScalar(f.scale); p.set(f.x, f.y, f.z);
+        v.mesh.setMatrixAt(i, m.compose(p, q, sc));
+      });
+      v.mesh.count = list.length;
+      v.mesh.instanceMatrix.needsUpdate = true;
+      total += list.length;
+    }
+    this.stats.flora = total;
+  }
+  // paleta ou voxel mudou: refaz as poucas variantes de flora
+  invalidateFlora() {
+    for (const v of this.floraVariants.values()) { if (v.mesh) { this.floraGroup.remove(v.mesh); v.mesh.dispose(); } v.geo.dispose(); }
+    this.floraVariants.clear();
+    this.applyFlora();
   }
   clearGrass() {
     for (const im of this.grassChunks.values()) { this.grassGroup.remove(im); im.dispose(); }
     this.grassChunks.clear();
+    this.floraChunks.clear(); this.applyFlora();
   }
 
   /* --- por quadro: vento e geração de variantes sem travar --- */
@@ -548,6 +619,7 @@ export class VegWorld {
     this.recolorTerrain();
     if (sameVoxel) for (const [key, v] of this.variants) { if (v.ready) this.recolorQueue.add(key); }
     else this.invalidateVariants();
+    this.invalidateFlora();
     this.U.uGBase.value.set(this.P.style.grass.base);
     this.U.uGTip.value.set(this.P.style.grass.tip);
   }
@@ -572,7 +644,7 @@ export class VegWorld {
   packMasks() {
     const q = a => { const u = new Uint8Array(a.length); for (let i = 0; i < a.length; i++) u[i] = Math.round(a[i] * 255); return u; };
     const b64 = u => { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
-    return { n: this.maskN, trees: b64(q(this.treeMask)), grass: b64(q(this.grassMask)), species: b64(new Uint8Array(this.speciesMask.buffer.slice(0))), soil: b64(this.soilMask) };
+    return { n: this.maskN, trees: b64(q(this.treeMask)), grass: b64(q(this.grassMask)), species: b64(new Uint8Array(this.speciesMask.buffer.slice(0))), soil: b64(this.soilMask), flora: b64(q(this.floraMask)) };
   }
   loadMasks(m) {
     if (!m || m.n !== this.maskN) return;
@@ -581,6 +653,7 @@ export class VegWorld {
     for (let i = 0; i < t.length; i++) { this.treeMask[i] = t[i] / 255; this.grassMask[i] = g[i] / 255; }
     this.speciesMask.set(new Int8Array(sp.buffer));
     if (m.soil) this.soilMask.set(un(m.soil)); // projetos antigos: tudo terra
+    if (m.flora) { const f = un(m.flora); for (let i = 0; i < f.length; i++) this.floraMask[i] = f[i] / 255; }
   }
   toJSON() {
     const r3 = v => Math.round(v * 1000) / 1000;

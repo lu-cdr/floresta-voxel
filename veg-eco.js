@@ -18,6 +18,10 @@ export const PREFS = {
   cerejeira: { moist: [.4, .7], light: [.5, 1], soil: { terra: 1, areia: .4, rocha: .1, humus: 1 }, slope: .4 },
   pinheiro: { moist: [.15, .6], light: [.3, 1], soil: { terra: .9, areia: 1, rocha: .6, humus: .7 }, slope: .8 },
   arbusto: { moist: [.2, .8], light: [.15, .9], soil: { terra: .8, areia: .8, rocha: .4, humus: .8 }, slope: .6 },
+  // sub-bosque (veg-core FLORA)
+  samambaia: { moist: [.5, 1], light: [0, .45], soil: { terra: .9, areia: .3, rocha: .4, humus: 1 }, slope: .7 },
+  flor: { moist: [.3, .7], light: [.6, 1], soil: { terra: 1, areia: .6, rocha: .2, humus: 1 }, slope: .5 },
+  musgo: { moist: [.55, 1], light: [0, .6], soil: { terra: .7, areia: .2, rocha: 1, humus: .8 }, slope: 1 },
 };
 // copa: [raio em blocos, força da sombra]
 const CROWN = { carvalho: [2.5, .75], betula: [2, .7], cerejeira: [2.8, .75], pinheiro: [1.6, .7], arbusto: [.9, .2] };
