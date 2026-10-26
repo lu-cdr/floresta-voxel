@@ -46,6 +46,14 @@
   .brand p { margin: 0; font-size: 12.5px; color: var(--muted); max-width: 34ch; }
   .stats { font: 500 11.5px/1.5 var(--f-body); color: var(--muted); font-variant-numeric: tabular-nums; }
 
+  /* coluna da esquerda: cabeçalho + painel Criar, sem se sobrepor */
+  .left {
+    position: fixed; z-index: 3; top: 16px; left: 16px; width: 236px; max-height: calc(100% - 100px);
+    display: flex; flex-direction: column; gap: 12px; overflow: hidden auto; scrollbar-width: thin;
+  }
+  .left .brand, .left .tools { position: static; transform: none; }
+  .left .brand { width: auto; }
+  .left .tools { width: auto; }
   /* barra de ferramentas à esquerda */
   .tools {
     position: fixed; z-index: 3; left: 16px; top: 50%; transform: translateY(-50%);
@@ -66,11 +74,25 @@
   .seg kbd { font: 500 10px/1 var(--f-pixel); color: var(--muted); }
   .seg button[aria-pressed="true"] kbd { color: inherit; }
   .row { display: grid; gap: 4px; }
-  .row label { display: flex; justify-content: space-between; font: 500 11.5px/1 var(--f-body); color: var(--muted); }
+  .row label { display: flex; justify-content: space-between; font: 500 12px/1 var(--f-body); color: var(--muted); }
   .row output { color: var(--ink); font-variant-numeric: tabular-nums; }
   .row input[type=range] { width: 100%; accent-color: var(--accent); }
   .row select { font: 500 12.5px var(--f-body); color: var(--ink); background: var(--chip); border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
-  .tools h2 { margin: 2px 0 0; font: 700 11px/1 var(--f-body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .tools h2, .sec > summary { margin: 2px 0 0; font: 700 11.5px/1 var(--f-body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .sec { display: grid; gap: 10px; }
+  .sec > summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; padding: 2px 0; }
+  .sec > summary::-webkit-details-marker { display: none; }
+  .sec > summary::after { content: '+'; font: 500 12px var(--f-pixel); }
+  .sec[open] > summary::after { content: '–'; }
+  .sec[open] { gap: 10px; }
+  .seg button.span { grid-column: 1 / -1; }
+  :where(button, select, input, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .guide { display: grid; gap: 6px; pointer-events: auto; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
+  .guide ol { margin: 0; padding-left: 18px; display: grid; gap: 3px; font: 500 12.5px/1.3 var(--f-body); color: var(--ink); }
+  .guide li.done { color: var(--muted); text-decoration: line-through; }
+  .guide li.done::marker { content: '✓  '; color: var(--accent); }
+  .guide kbd { font: 500 10px/1 var(--f-pixel); color: var(--muted); }
+  .guide button { justify-self: start; font: 500 12px var(--f-body); color: var(--muted); background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
   .busy { font: 500 11.5px/1.3 var(--f-body); color: var(--accent); min-height: 1.3em; }
   .tools .row[hidden], .tools .note[hidden], .legend[hidden] { display: none; }
   .tools .note { margin: 0; font: 500 12.5px/1.4 var(--f-body); color: var(--muted); }
@@ -163,7 +185,9 @@
   .lil-gui .title { font-weight: 600; }
 
   @media (max-width: 760px) {
-    .tools { top: auto; bottom: 132px; transform: none; width: calc(100% - 32px); grid-template-columns: 1fr 1fr; }
+    .left { width: auto; right: 16px; max-height: none; overflow: visible; pointer-events: none; }
+    .left .brand { align-self: flex-start; }
+    .left .tools { position: fixed; top: auto; bottom: 186px; left: 16px; transform: none; width: calc(100% - 32px); grid-template-columns: 1fr 1fr; pointer-events: auto; max-height: calc(100% - 270px); overflow-y: auto; }
     .hint { display: none; }
     .clock { width: calc(100% - 32px); flex-wrap: wrap; gap: 8px 12px; bottom: 12px; }
     .clock .hour { flex: 1; }
@@ -175,8 +199,11 @@
     .tools .note { grid-column: 1 / -1; }
     .tools .legend, .tools .row:has(#bView) { grid-column: 1 / -1; }
     .tools #histSeg { grid-template-columns: 1fr 1fr; }
-    .tools h2, .busy { grid-column: 1 / -1; }
-    .brand p { display: none; }
+    .tools h2, .busy, .tools .sec { grid-column: 1 / -1; }
+    .sec[open] { grid-template-columns: 1fr 1fr; }
+    .sec > summary, .sec .legend, .sec .note, .sec .row:has(#bView), .sec .row:has(select), .sec .seg { grid-column: 1 / -1; }
+    .brand p, .guide { display: none !important; }
+    .lil-gui.root { top: 86px; }
     .lil-gui.root { width: min(300px, calc(100% - 24px)) !important; max-height: 45%; }
   }
 </style>
@@ -184,10 +211,20 @@
 <body data-tool="arvores">
 <canvas id="scene" tabindex="0" aria-label="Cena 3D da floresta. Pinte árvores e grama com o pincel."></canvas>
 
+<div class="left">
 <div class="brand">
   <div class="mark">FLORESTA VOXEL</div>
-  <p>Pinte florestas inteiras. Ruído Perlin decide espaçamento, espécie, tamanho, formato e cor.</p>
+  <p>Pinte uma floresta, avance as estações e veja o lugar decidir o que cresce.</p>
   <div class="stats" id="stats"></div>
+  <div class="guide" id="guide" hidden>
+    <ol>
+      <li data-step="pintar">Pinte ou apague árvores</li>
+      <li data-step="tempo">Avance uma estação</li>
+      <li data-step="ver">Veja umidade ou luz no terreno</li>
+      <li data-step="foto">Salve uma foto <kbd>P</kbd></li>
+    </ol>
+    <button id="guideClose" type="button">Esconder</button>
+  </div>
 </div>
 
 <div class="tools" role="toolbar" aria-label="Ferramentas">
@@ -203,7 +240,7 @@
     <button id="bUndo" disabled aria-keyshortcuts="Control+Z" title="Nada para desfazer">↶ Desfazer</button>
     <button id="bRedo" disabled aria-keyshortcuts="Control+Shift+Z Control+Y" title="Nada para refazer">↷ Refazer</button>
   </div>
-  <h2>Pincel</h2>
+  <details class="sec" id="secBrush" open><summary>Pincel</summary>
   <div class="row"><label for="bRadius">Raio <output id="oRadius"></output></label><input id="bRadius" type="range" min="1" max="24" step=".5" value="7"></div>
   <div class="row"><label for="bStrength">Força <output id="oStrength"></output></label><input id="bStrength" type="range" min=".05" max="1" step=".05" value=".6"></div>
   <div class="row"><label for="bHard">Dureza <output id="oHard"></output></label><input id="bHard" type="range" min="0" max="1" step=".05" value=".35"></div>
@@ -217,14 +254,24 @@
   <div class="row" data-for="borracha"><label for="bErase">Borracha apaga</label>
     <select id="bErase"><option value="ambos">tudo que cresce</option><option value="arvores">só árvores</option><option value="grama">só grama</option><option value="flora">só flora</option></select>
   </div>
-  <h2>Ver no terreno</h2>
+  </details>
+  <details class="sec" id="secView" open><summary>Ver no terreno</summary>
   <div class="row"><select id="bView" aria-label="Camada mostrada no terreno"></select></div>
   <div class="legend" id="legend" hidden>
     <div class="bar" aria-hidden="true"></div>
     <div class="ends"><span id="lgLo"></span><span id="lgHi"></span></div>
     <div class="probe" id="probe" aria-live="polite">Passe o mouse no terreno.</div>
   </div>
+  </details>
+  <details class="sec" id="secFile"><summary>Projeto</summary>
+    <div class="seg">
+      <button id="fSave" type="button" title="Baixar o projeto como .json">Salvar</button>
+      <button id="fOpen" type="button" title="Abrir um projeto .json">Abrir…</button>
+      <button id="fClear" type="button" class="span" title="Apaga árvores, grama e flora (dá para desfazer)">Limpar o mapa</button>
+    </div>
+  </details>
   <div class="busy" id="busy" aria-live="polite"></div>
+</div>
 </div>
 
 <div class="clock" id="clock" role="group" aria-label="Tempo">
@@ -426,7 +473,7 @@ function maskAction(label, fn) {
 let stroke = null; // traço em andamento: { before, bounds, label }
 function endStroke() {
   painting = false;
-  if (stroke?.bounds) maskCommand(stroke.label, stroke.before, stroke.bounds);
+  if (stroke?.bounds && maskCommand(stroke.label, stroke.before, stroke.bounds) && /árvores|borracha/.test(stroke.label)) guide('pintar');
   stroke = null;
 }
 function undo() {
@@ -446,6 +493,19 @@ function syncHistoryUi() {
   r.title = history.canRedo ? `Refazer ${history.redoLabel} (Ctrl+Shift+Z)` : 'Nada para refazer';
 }
 $('#bUndo').addEventListener('click', undo);
+$('#fSave').addEventListener('click', () => { download('floresta.json', JSON.stringify(world.toJSON()), 'application/json'); busy('Projeto salvo: floresta.json'); });
+$('#fOpen').addEventListener('click', () => $('#fileProject').click());
+$('#fClear').addEventListener('click', () => maskAction('limpar o mapa', () => { world.fillAll('arvores', 0); world.fillAll('grama', 0); world.fillAll('flora', 0); markTrees(); dirty.colors = true; busy('Mapa limpo. Ctrl+Z traz de volta.'); }));
+if (innerWidth < 760) { $('#secBrush').open = false; $('#secView').open = false; } // no celular, o painel começa enxuto
+
+/* primeiros passos (o critério do Marco 1): pintar → tempo → ver → foto; lembrado só neste navegador */
+const guideDone = new Set(JSON.parse(store.get('floresta-voxel:guia') || '[]'));
+function guide(step) {
+  if (step) { if (guideDone.has(step)) return; guideDone.add(step); store.set('floresta-voxel:guia', JSON.stringify([...guideDone])); }
+  document.querySelectorAll('#guide li').forEach(li => li.classList.toggle('done', guideDone.has(li.dataset.step)));
+  $('#guide').hidden = guideDone.has('fechado') || ['pintar', 'tempo', 'ver', 'foto'].every(k => guideDone.has(k));
+}
+$('#guideClose').addEventListener('click', () => guide('fechado'));
 $('#bRedo').addEventListener('click', redo);
 
 function pick(e) {
@@ -562,13 +622,13 @@ const markVariants = () => { dirty.variants = performance.now(); dirty.trees = t
 function buildGui() {
   const keep = gui && { open: new Set(gui.foldersRecursive().filter(f => !f._closed).map(folderPath)), scroll: gui.domElement.scrollTop, closed: gui._closed };
   gui?.destroy();
-  gui = new GUI({ title: 'Debug · vegetação', width: 300 });
+  gui = new GUI({ title: 'Avançado', width: 300 });
   buildGuiFolders();
   if (keep) {
     for (const f of gui.foldersRecursive()) f.open(keep.open.has(folderPath(f)));
     gui.open(!keep.closed);
     gui.domElement.scrollTop = keep.scroll;
-  } else if (innerWidth < 760) gui.close();
+  } else gui.close(); // parâmetros brutos ficam guardados; o painel Criar fala a língua da criação
 }
 function folderPath(f) { let s = ''; for (let x = f; x && x.parent; x = x.parent) s = x._title + '/' + s; return s; }
 function buildGuiFolders() {
@@ -830,6 +890,7 @@ function setView(key) {
   $('#bView').value = viewLayer.key;
   world.overlay = viewLayer.key;
   $('#legend').hidden = viewLayer.key === 'nenhum';
+  if (viewLayer.key !== 'nenhum') guide('ver');
   if (viewLayer.lo) { $('#lgLo').textContent = viewLayer.lo; $('#lgHi').textContent = viewLayer.hi; }
   $('#probe').textContent = 'Passe o mouse no terreno.';
   if (view.overlay !== 'nenhum') { view.overlay = 'nenhum'; gui.controllersRecursive().forEach(c => c.updateDisplay()); }
@@ -883,6 +944,7 @@ function advance(days) {
   const s = seasonAt(eco());
   const label = days === 1 ? 'avançar 1 dia' : days === 7 ? 'avançar 1 semana' : 'avançar estação';
   history.push({ label, apply: () => setTick(to), revert: () => setTick(from) });
+  if (s.index !== before) guide('tempo');
   const head = s.index !== before ? `Chegou ${s.key === 'primavera' ? 'a' : 'o'} ${s.label}.` : `${s.label}, dia ${s.day}.`;
   busy(eco().mode === 'ecossistema' ? head + ' ' + lifeNews(stages) : head);
 }
@@ -990,6 +1052,7 @@ $('#pShot').addEventListener('click', async () => {
     const r = await capturePhoto({ renderer, scene, camera, scale: +$('#pScale').value, frame: P.photo.frame, meta });
     renderer.render(scene, camera); // o setSize limpou o canvas da tela
     download(photoFileName(meta), r.blob);
+    guide('foto');
     $('#flash').classList.add('on'); requestAnimationFrame(() => requestAnimationFrame(() => $('#flash').classList.remove('on')));
     $('#pMsg').textContent = `Foto salva: ${r.width}×${r.height}${r.scale < +$('#pScale').value ? ' (a placa de vídeo limitou o tamanho)' : ''}.`;
   } catch (err) {
@@ -1041,6 +1104,7 @@ function frame(now) {
 
 applySeason();
 buildGui();
+guide();
 applyLook();
 syncClock();
 resize();

@@ -19,6 +19,9 @@ florestas inteiras e menu de debug. Detalhes técnicos completos em `README.md`.
 | `floresta.html` | Editor: ferramentas Câmera/Árvores/Grama/Borracha (C, 1, 2, E; `[` `]` raio; Shift apaga), lil-gui 0.19.2 com todos os parâmetros, visualização de campo no terreno, estilos, export (projeto .json, árvore .glb, biblioteca .glb, cena .glb). Autosave em `localStorage['floresta-voxel:projeto']`. `window.__world` para depurar. |
 | `exemplo-jogo.html` | Runtime mínimo: terceira pessoa (WASD/Shift/toque), colisão com troncos, grama abre em volta do jogador, carrega o projeto do editor (mesmo localStorage) ou um .json. |
 | `.claude/launch.json` | Servidor `vegetacao`: `python -m http.server 8767` nesta pasta. |
+| `veg-history.js` | Desfazer/refazer: `History` + remendos de máscara por retângulo. |
+| `veg-eco.js` | Grade ecológica (umidade, luz, fertilidade, declive, solo), `PREFS` de espécies e flora, adequação e fator limitante. |
+| `veg-photo.js` | Modo foto: `capturePhoto` em 2×/4× com moldura e legenda. |
 | `tests/` | `npm test` (= `node --test "tests/*.test.mjs"`): determinismo do núcleo, localidade do scatter, migração v1→v2. `fixtures/projeto-v1.json` é um projeto salvo no formato antigo. |
 
 ## Roadmap em execução
@@ -112,3 +115,17 @@ Abrir: preview `vegetacao` → `http://localhost:8767/floresta.html`.
 3. **TIGHT:** Tempo — captura 2× com polaroide ≈ 0,4 s (sem `preserveDrawingBuffer`; canvas volta ao tamanho original e é redesenhado). Integridade — moldura/legenda salvas no projeto. Game feel — "Revelando…", clarão, mensagem com dimensões, erro legível sugerindo 2×. Harmonia — mesmas cores/fontes nas molduras. Testes — `npm test` 54 + página de teste das molduras.
 4. **Verificação:** Playwright: P → polaroide + legenda + 17:17 → download `floresta-voxel-2026-10-26-0846.png` 2783×3088, Esc volta; console sem erros.
 5. **Riscos/continuação:** sem profundidade de campo nem clima (clima é do Marco 2); "álbum de estações" do GDD ainda não existe.
+
+### Incremento 7 — Painel "Criar" simplificado (2026-10-26)
+
+1. **Entrega:** o menu de parâmetros virou **Avançado** e começa fechado. A coluna da esquerda junta cabeçalho e painel: ferramentas, desfazer/refazer, seções dobráveis **Pincel**, **Ver no terreno** e **Projeto** (Salvar, Abrir…, Limpar o mapa — desfazível). **Primeiros passos** no cabeçalho (pintar → avançar estação → ver camada → salvar foto), que se riscam sozinhos e somem ao fim (lembrado só neste navegador). No celular, Pincel/Ver começam dobrados e nada se sobrepõe. Foco visível em botões/selects/sumários; rótulos ≥ 12 px.
+2. **Arquivos:** só `floresta.html`.
+3. **TIGHT:** Tempo — nada novo no laço. Integridade — guia em `localStorage['floresta-voxel:guia']` (conveniência por navegador, falha silenciosa). Game feel — o critério do Marco 1 vira o roteiro na tela. Harmonia — mesmos tokens; coluna sem barra de rolagem em 1280×900; 375 px sem rolagem horizontal. Testes — `npm test` 54.
+4. **Verificação:** Playwright: Avançado fechado; pintar/estação/umidade/foto marcam o guia e ele some; Limpar o mapa + Ctrl+Z (0 → 602 árvores); 1280×900 e 375×812 sem sobreposição; runtime carrega projeto em modo Ecossistema; console sem erros.
+5. **Riscos/continuação:** atalhos ainda não são remapeáveis; não há controle de escala de interface/contraste (GDD §9).
+
+## Marco 1 — "Diorama vivo": fechado em 2026-10-26
+
+Em menos de cinco minutos: pintar/apagar → "Próxima estação" (cores e, no Ecossistema, brotos/mortes/tocos com mensagem) → "Ver no terreno" explica (umidade, luz, "Bom para…") → P → Salvar PNG. Commits: um por incremento (`git log`).
+
+**Próximo:** porte para Godot 4 (formato v2 estável; ver "Próximos passos" acima) e depois Marco 2 — água estática + chuva, germinação por pressão de sementes e competição por luz (`siteQuality` hoje ignora luz de propósito), fauna-indicador + caderno de campo, carimbos, cenário de mata ciliar.
