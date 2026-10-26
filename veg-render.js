@@ -7,6 +7,8 @@ import {
   SPECIES_KEYS, STYLES, defaultProject, migrateProject, sampleField, genTreeVoxels, colorTree, meshVoxels,
   scatterTrees, scatterGrass, bucketT, variantSeed, hexToRgb, srgbToLinear, shiftHsl, hash3, clamp01, lerp,
 } from './veg-core.js';
+import { seasonAt } from './veg-core.js';
+import { SOILS, computeEco, suitabilityGrid } from './veg-eco.js';
 
 // o projeto padrão e a migração moram no núcleo (sem three), para Node/Godot lerem igual
 export { defaultProject, migrateProject };
@@ -164,6 +166,8 @@ export class VegWorld {
     this.treeMask = new Float32Array(n * n);
     this.grassMask = new Float32Array(n * n);
     this.speciesMask = new Int8Array(n * n).fill(-1);
+    this.soilMask = new Uint8Array(n * n); // índice em SOILS (0 = terra)
+    this.eco = null;
     if (masks) this.loadMasks(masks);
     this.rebuildTerrain();
   }
@@ -174,7 +178,9 @@ export class VegWorld {
   }
   sampleMask(arr, x, z) { const k = this.maskIndex(x, z); return k < 0 ? 0 : arr[k]; }
 
+  // value: espécie forçada (árvores) ou tipo de solo (solo)
   paint(layer, x, z, radius, strength, hardness, erase, speciesIdx = -1) {
+    if (layer === 'solo') return this.paintSoil(x, z, radius, strength, hardness, erase ? 0 : speciesIdx);
     const arr = layer === 'grama' ? this.grassMask : this.treeMask;
     const n = this.maskN, h = this.P.size / 2, r = this.res;
     const i0 = Math.max(0, Math.floor((x - radius + h) * r)), i1 = Math.min(n - 1, Math.ceil((x + radius + h) * r));
@@ -194,7 +200,7 @@ export class VegWorld {
     return { x0: x - radius, x1: x + radius, z0: z - radius, z1: z + radius };
   }
   // camadas pintadas que o histórico guarda (todas maskN × maskN)
-  maskLayers() { return { trees: this.treeMask, grass: this.grassMask, species: this.speciesMask }; }
+  maskLayers() { return { trees: this.treeMask, grass: this.grassMask, species: this.speciesMask, soil: this.soilMask }; }
   // bounds em mundo → retângulo inclusivo de células da máscara (mesma conta do paint)
   maskRect(b) {
     const n = this.maskN, h = this.P.size / 2, r = this.res;
@@ -205,6 +211,35 @@ export class VegWorld {
     return rect.i0 > rect.i1 || rect.j0 > rect.j1 ? null : rect;
   }
   get bounds() { const h = this.P.size / 2; return { x0: -h, x1: h, z0: -h, z1: h }; }
+  // solo é categórico: a célula troca de tipo onde a pincelada passa do limiar
+  paintSoil(x, z, radius, strength, hardness, type) {
+    const n = this.maskN, h = this.P.size / 2, r = this.res;
+    const i0 = Math.max(0, Math.floor((x - radius + h) * r)), i1 = Math.min(n - 1, Math.ceil((x + radius + h) * r));
+    const j0 = Math.max(0, Math.floor((z - radius + h) * r)), j1 = Math.min(n - 1, Math.ceil((z + radius + h) * r));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const d = Math.hypot(i / r - h + .5 / r - x, j / r - h + .5 / r - z) / radius;
+      if (d > 1) continue;
+      if ((1 - Math.pow(d, Math.max(.05, hardness * 6))) * strength > .15) this.soilMask[j * n + i] = type;
+    }
+    this.eco = null;
+    return { x0: x - radius, x1: x + radius, z0: z - radius, z1: z + radius };
+  }
+  soilAt(x, z) { const k = this.maskIndex(x, z); return k < 0 ? 0 : this.soilMask[k]; }
+  // grade ecológica sob demanda; qualquer mudança em árvores, solo, relevo ou estação a invalida
+  getEco() {
+    if (this.eco) return this.eco;
+    const { size, terrain } = this.P, h = size / 2;
+    this.eco = computeEco({
+      size, heights: this.heights, amp: terrain.amp,
+      soilAt: (i, j) => this.soilAt(i - h + .5, j - h + .5),
+      trees: this.trees, season: seasonAt(this.P.ecology).index,
+    });
+    return this.eco;
+  }
+  ecoIndex(x, z) {
+    const s = this.P.size, h = s / 2, i = Math.floor(x + h), j = Math.floor(z + h);
+    return i < 0 || j < 0 || i >= s || j >= s ? -1 : j * s + i;
+  }
   fillAll(layer, v = 1) {
     (layer === 'grama' ? this.grassMask : this.treeMask).fill(v);
     if (layer !== 'grama') this.speciesMask.fill(-1);
@@ -219,6 +254,7 @@ export class VegWorld {
       const v = sampleField(terrain.field, i - h + .5, j - h + .5);
       this.heights[j * size + i] = Math.round(v * terrain.amp / terrain.step) * terrain.step;
     }
+    this.eco = null;
     if (this.terrainMesh) { this.group.remove(this.terrainMesh); this.terrainMesh.geometry.dispose(); }
     const pos = [], nor = [], tileOf = [];
     const H = (i, j) => (i < 0 || j < 0 || i >= size || j >= size) ? -2 : this.heights[j * size + i];
@@ -261,7 +297,9 @@ export class VegWorld {
     const C = Object.fromEntries(Object.entries(T).map(([k, v]) => [k, hexToRgb(v)]));
     const h = size / 2, tileCol = new Array(size * size), sideCol = new Array(size * size);
     const snowC = style.snow > 0 && T.snow ? hexToRgb(T.snow) : null;
-    const field = this.overlay !== 'nenhum' ? (this.overlay === 'terreno' ? terrain.field : this.P.fields[this.overlay]) : null;
+    const field = this.overlay !== 'nenhum' && !this.overlay.startsWith('eco:') ? (this.overlay === 'terreno' ? terrain.field : this.P.fields[this.overlay]) : null;
+    const ecoV = this.overlay.startsWith('eco:') ? this.ecoOverlay(this.overlay.slice(4)) : null;
+    const soilC = SOILS.map(s => s.color && hexToRgb(s.color));
     for (let j = 0; j < size; j++) for (let i = 0; i < size; i++) {
       const t = j * size + i, x = i - h + .5, z = j - h + .5;
       const y = this.heights[t] / Math.max(.01, terrain.amp);
@@ -269,9 +307,12 @@ export class VegWorld {
       const gm = this.sampleMask(this.grassMask, x, z), tm = this.sampleMask(this.treeMask, x, z);
       c = c.map((v, k) => lerp(v, C.grass[k], gm * .8));
       c = c.map((v, k) => lerp(v, C.litter[k], tm * .35));
+      const so = this.soilAt(x, z);
+      if (so) c = c.map((v, k) => lerp(v, soilC[so][k], SOILS[so].mix));
       if (snowC) c = c.map((v, k) => lerp(v, snowC[k], style.snow * .7));
       c = shiftHsl(c, 0, 0, (hash3(i, j, 5) - .5) * .035);
       if (field) c = ramp(sampleField(field, x, z)).map((v, k) => lerp(c[k], v, .82));
+      if (ecoV) c = ramp(ecoV[t]).map((v, k) => lerp(c[k], v, .82));
       tileCol[t] = srgbToLinear(c);
       sideCol[t] = srgbToLinear(shiftHsl(C.cliff, 0, 0, (hash3(i, j, 9) - .5) * .05));
     }
@@ -282,6 +323,12 @@ export class VegWorld {
       col.setXYZ(v, c[0], c[1], c[2]);
     }
     col.needsUpdate = true;
+  }
+  // 'umidade' | 'luz' | 'fertilidade' | 'declive' | 'adequacao:<espécie>' → valor por bloco
+  ecoOverlay(name) {
+    const e = this.getEco();
+    if (name.startsWith('adequacao:')) return suitabilityGrid(name.slice(10), e);
+    return { umidade: e.moisture, luz: e.light, fertilidade: e.fertility, declive: e.slope }[name];
   }
   // raio contra o heightmap: avança em passos e refina
   raycast(ray) {
@@ -339,6 +386,7 @@ export class VegWorld {
       slopeAt: (x, z) => this.slopeAt(x, z),
       fields: P.fields, p: P.trees,
     });
+    this.eco = null;
     this.applyTrees();
   }
   applyTrees() {
@@ -411,7 +459,7 @@ export class VegWorld {
       if (old) { this.grassGroup.remove(old); old.dispose(); this.grassChunks.delete(key); }
       const blades = scatterGrass({
         x0, z0, x1: Math.min(h, x0 + CH), z1: Math.min(h, z0 + CH), seed: P.seed + 77,
-        maskAt: (x, z) => this.sampleMask(this.grassMask, x, z),
+        maskAt: (x, z) => this.sampleMask(this.grassMask, x, z) * SOILS[this.soilAt(x, z)].grass,
         heightAt: (x, z) => this.heightAt(x, z), fields: P.fields, p: P.grass,
         blockedAt: P.grass.underTrees ? blocked : (x, z) => blocked(x, z) || this.sampleMask(this.treeMask, x, z) > .5,
       });
@@ -500,7 +548,7 @@ export class VegWorld {
   packMasks() {
     const q = a => { const u = new Uint8Array(a.length); for (let i = 0; i < a.length; i++) u[i] = Math.round(a[i] * 255); return u; };
     const b64 = u => { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
-    return { n: this.maskN, trees: b64(q(this.treeMask)), grass: b64(q(this.grassMask)), species: b64(new Uint8Array(this.speciesMask.buffer.slice(0))) };
+    return { n: this.maskN, trees: b64(q(this.treeMask)), grass: b64(q(this.grassMask)), species: b64(new Uint8Array(this.speciesMask.buffer.slice(0))), soil: b64(this.soilMask) };
   }
   loadMasks(m) {
     if (!m || m.n !== this.maskN) return;
@@ -508,6 +556,7 @@ export class VegWorld {
     const t = un(m.trees), g = un(m.grass), sp = un(m.species);
     for (let i = 0; i < t.length; i++) { this.treeMask[i] = t[i] / 255; this.grassMask[i] = g[i] / 255; }
     this.speciesMask.set(new Int8Array(sp.buffer));
+    if (m.soil) this.soilMask.set(un(m.soil)); // projetos antigos: tudo terra
   }
   toJSON() {
     const r3 = v => Math.round(v * 1000) / 1000;

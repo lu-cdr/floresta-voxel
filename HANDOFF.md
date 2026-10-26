@@ -80,3 +80,11 @@ Abrir: preview `vegetacao` → `http://localhost:8767/floresta.html`.
 
 - O que foi pintado na porta 8766 (quando o projeto estava no acervo) ficou no localStorage daquela origem; a 8767 começa do zero.
 - No shader, não usar o nome `im` para variáveis (o three já declara); por isso é `vegIm`.
+
+### Incremento 3 — Solo, umidade e overlays (2026-10-26)
+
+1. **Entrega:** ferramenta **Solo** (tecla 3) com Areia/Rocha/Húmus (Shift volta a terra); areia deixa a grama rala e rocha quase nua, com cor própria no terreno. Seção **Ver no terreno**: umidade, luz no chão, fertilidade, declive e "Bom para <espécie>", com legenda (rampa escura→clara, legível sem cor) e leitura no cursor ("Bétula: 34% — pouca luz · Umidade 52% · luz 20% …").
+2. **Arquivos/contratos:** `veg-eco.js` novo (trilha Sonnet): `SOILS` (+ `grass`, por mim), `PREFS`, `computeEco`, `suitability`, `suitabilityGrid`, `explainCell`. `VegWorld`: `soilMask` (Uint8, na resolução das máscaras, entra em `maskLayers()` → histórico), `paintSoil`, `soilAt`, `getEco()` (cache invalidado por árvores, relevo, solo e estação), `ecoIndex`, overlays `eco:*`. Save: `masks.soil` (b64); projetos sem ele = tudo terra.
+3. **TIGHT:** Tempo — grade ecológica 7,8 ms no navegador (96², 615 árvores), só recalculada sob demanda; recolorir terreno 12 ms. Integridade — determinística (testes), solo sobrevive a reload, desfazer de solo exato. Game feel — legenda com palavras (seco/úmido), causa limitante em texto. Harmonia — mesmos controles; opções de cada ferramenta só aparecem com ela. Testes — 37 em `npm test`.
+4. **Verificação:** Playwright 8767: pintar areia/rocha/húmus, overlays de umidade e adequação, leitura no cursor, Ctrl+Z/Ctrl+Shift+Z, reload; console sem erros.
+5. **Riscos/continuação:** com um overlay ecológico ligado, pintar árvores recalcula grade + terreno por quadro (~20 ms). A grade ainda não muda o crescimento (vem no Incremento 4, modo Ecossistema).
