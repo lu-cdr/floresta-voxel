@@ -77,7 +77,7 @@
   .row label { display: flex; justify-content: space-between; font: 500 12px/1 var(--f-body); color: var(--muted); }
   .row output { color: var(--ink); font-variant-numeric: tabular-nums; }
   .row input[type=range] { width: 100%; accent-color: var(--accent); }
-  .row select { font: 500 12.5px var(--f-body); color: var(--ink); background: var(--chip); border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
+  .row select { min-width: 0; width: 100%; font: 500 12.5px var(--f-body); color: var(--ink); background: var(--chip); border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
   .tools h2, .sec > summary { margin: 2px 0 0; font: 700 11.5px/1 var(--f-body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
   .sec { display: grid; gap: 10px; }
   .sec > summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; padding: 2px 0; }
@@ -234,7 +234,8 @@
     <button data-tool="grama" aria-pressed="false">Grama <kbd>2</kbd></button>
     <button data-tool="solo" aria-pressed="false">Solo <kbd>3</kbd></button>
     <button data-tool="flora" aria-pressed="false" title="Samambaias, flores e musgo onde o lugar serve">Flora <kbd>4</kbd></button>
-    <button data-tool="borracha" aria-pressed="false">Borracha <kbd>E</kbd></button>
+    <button data-tool="agua" aria-pressed="false" title="Rios, lagos e cachoeiras">Água <kbd>5</kbd></button>
+    <button data-tool="borracha" aria-pressed="false" class="span">Borracha <kbd>E</kbd></button>
   </div>
   <div class="seg" id="histSeg">
     <button id="bUndo" disabled aria-keyshortcuts="Control+Z" title="Nada para desfazer">↶ Desfazer</button>
@@ -251,8 +252,13 @@
   <div class="row" data-for="arvores"><label for="bSpecies">Espécie</label>
     <select id="bSpecies"><option value="-1">Automática (ruído)</option></select>
   </div>
+  <p class="note" data-for="arvores">Passe de novo por cima de uma mata para adensá-la.</p>
+  <div class="row" data-for="agua"><label for="bWater">Forma</label>
+    <select id="bWater"><option value="rio">Rio</option><option value="lago">Lago</option><option value="cachoeira">Cachoeira</option></select>
+  </div>
+  <p class="note" data-for="agua" id="waterNote"></p>
   <div class="row" data-for="borracha"><label for="bErase">Borracha apaga</label>
-    <select id="bErase"><option value="ambos">tudo que cresce</option><option value="arvores">só árvores</option><option value="grama">só grama</option><option value="flora">só flora</option></select>
+    <select id="bErase"><option value="ambos">tudo que cresce</option><option value="arvores">só árvores</option><option value="grama">só grama</option><option value="flora">só flora</option><option value="agua">só água</option></select>
   </div>
   </details>
   <details class="sec" id="secView" open><summary>Ver no terreno</summary>
@@ -365,7 +371,8 @@ const persp = new THREE.PerspectiveCamera(42, 1, .1, 800);
 const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -400, 800);
 let camera = persp;
 let controls;
-const brush = { tool: 'arvores', radius: 7, strength: .6, hard: .35, species: -1, soil: 1, erase: 'ambos' };
+const brush = { tool: 'arvores', radius: 7, strength: .6, hard: .35, species: -1, soil: 1, erase: 'ambos', water: 'rio' };
+const toolRadius = { agua: 2 }; // cada ferramenta lembra o próprio raio (rio pede pincel fino)
 function makeControls() {
   const prev = controls ? { t: controls.target.clone() } : null;
   controls?.dispose();
@@ -395,6 +402,7 @@ function applyToolToControls() {
   controls.touches = paint ? { ONE: -1, TWO: THREE.TOUCH.DOLLY_ROTATE } : { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
 }
 function setTool(t) {
+  if (brush.tool !== t) { toolRadius[brush.tool] = brush.radius; if (toolRadius[t]) setRadius(toolRadius[t]); }
   brush.tool = t;
   document.body.dataset.tool = t;
   document.querySelectorAll('#toolSeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tool === t)));
@@ -421,6 +429,13 @@ SOILS.forEach((s, i) => { if (i) $('#bSoil').add(new Option(s.label, i)); });
 $('#bSoil').value = brush.soil;
 $('#bSoil').addEventListener('change', e => brush.soil = +e.target.value);
 $('#bErase').addEventListener('change', e => brush.erase = e.target.value);
+const WATER_NOTES = {
+  rio: 'Pinte do alto para baixo: o rio nunca sobe, escava o morro e vira cachoeira onde o terreno cai. Shift apaga.',
+  lago: 'Clique no fundo do vale e pinte: a água enche só o que está abaixo do primeiro clique. Shift apaga.',
+  cachoeira: 'Clique onde a água cai e arraste rio abaixo: depois do clique o leito despenca 3 degraus e escava a garganta. Shift apaga.',
+};
+const syncWater = () => { brush.water = $('#bWater').value; $('#waterNote').textContent = WATER_NOTES[brush.water]; };
+$('#bWater').addEventListener('change', syncWater); syncWater();
 
 // anel do pincel acompanhando o relevo
 const RING_N = 72;
@@ -442,7 +457,7 @@ function updateRing() {
 const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
 const pointers = new Set();
 let painting = false, shiftDown = false;
-const dirty = { flora: false, sprout: false, trees: false, grass: null, colors: false, terrain: false, variants: 0, save: 0 };
+const dirty = { water: false, flora: false, sprout: false, trees: false, grass: null, colors: false, terrain: false, variants: 0, save: 0 };
 const mergeBounds = (a, b) => !a ? b : { x0: Math.min(a.x0, b.x0), x1: Math.max(a.x1, b.x1), z0: Math.min(a.z0, b.z0), z1: Math.max(a.z1, b.z1) };
 
 /* ---------- desfazer / refazer ----------
@@ -452,6 +467,7 @@ const history = new History({ onChange: syncHistoryUi });
 function markMasks(bounds, patch) {
   if (patch.after.trees || patch.after.species) dirty.trees = dirty.sprout = true;
   if (patch.after.soil) world.eco = null;
+  if (patch.after.water) dirty.water = true;
   if (dirty.grass !== 'all') dirty.grass = mergeBounds(dirty.grass, bounds);
   dirty.colors = true;
   dirty.save = performance.now();
@@ -520,7 +536,7 @@ function stamp(e, first) {
   if (!hit) return;
   cursor.x = hit.x; cursor.z = hit.z; cursor.on = true;
   const erase = brush.tool === 'borracha' || e.shiftKey;
-  const layers = ['grama', 'arvores', 'solo', 'flora'].includes(brush.tool) ? [brush.tool]
+  const layers = ['grama', 'arvores', 'solo', 'flora', 'agua'].includes(brush.tool) ? [brush.tool]
     : brush.erase === 'ambos' ? ['arvores', 'grama', 'flora'] : [brush.erase];
   const s = brush.strength * (erase ? 1 : .5);
   // carimbos espaçados ao longo do traço, para um arrasto rápido não deixar falhas
@@ -530,6 +546,22 @@ function stamp(e, first) {
   for (let i = first ? 0 : 1; i <= n; i++) {
     const x = from.x + (hit.x - from.x) * i / n, z = from.z + (hit.z - from.z) * i / n;
     for (const L of layers) {
+      if (L === 'agua') {
+        // rio: nível = o mais baixo do traço até aqui; lago: nível do primeiro clique;
+        // cachoeira: nível do clique em volta dele, depois 3 degraus abaixo (e seguindo o terreno se ele descer mais)
+        const ground = world.baseHeightAt(x, z), mode = brush.water === 'cachoeira' ? 'rio' : brush.water;
+        let level = ground;
+        if (stroke) {
+          if (stroke.level == null) { stroke.level = ground; stroke.x = x; stroke.z = z; }
+          if (brush.water === 'cachoeira') {
+            if (Math.hypot(x - stroke.x, z - stroke.z) > brush.radius + 1) stroke.level = Math.min(stroke.level, stroke.fall ??= stroke.level - Math.max(1.5, 3 * P.terrain.step), ground);
+          } else if (brush.water === 'rio') stroke.level = Math.min(stroke.level, ground);
+          level = stroke.level;
+        }
+        const b = world.paintWater(x, z, brush.radius, { mode, level, erase });
+        if (b) { dirty.water = true; if (dirty.grass !== 'all') dirty.grass = mergeBounds(dirty.grass, b); if (stroke) stroke.bounds = mergeBounds(stroke.bounds, b); }
+        continue;
+      }
       const b = world.paint(L, x, z, brush.radius, L === 'solo' ? brush.strength : s, brush.hard, erase, L === 'solo' ? brush.soil : brush.species);
       if (L === 'arvores') dirty.trees = dirty.sprout = true;
       if (dirty.grass !== 'all') dirty.grass = mergeBounds(dirty.grass, b);
@@ -537,6 +569,7 @@ function stamp(e, first) {
     }
   }
   if (stroke && !stroke.label) stroke.label = brush.tool === 'solo' ? (erase ? 'solo de volta a terra' : 'solo: ' + SOILS[brush.soil].label.toLowerCase())
+    : brush.tool === 'agua' ? (erase ? 'apagar água' : brush.water)
     : erase ? 'borracha' : brush.tool === 'grama' ? 'pincel de grama' : brush.tool === 'flora' ? 'pincel de flora' : 'pincel de árvores';
   lastHit = hit;
   dirty.colors = true;
@@ -586,6 +619,7 @@ addEventListener('keydown', e => {
   else if (k === '2') setTool('grama');
   else if (k === '3') setTool('solo');
   else if (k === '4') setTool('flora');
+  else if (k === '5') setTool('agua');
   else if (k === 'e') setTool('borracha');
   else if (k === '[') setRadius(Math.max(1, brush.radius - 1));
   else if (k === ']') setRadius(Math.min(24, brush.radius + 1));
@@ -1074,7 +1108,13 @@ addEventListener('resize', resize);
 let frames = 0, fpsT = performance.now();
 function frame(now) {
   const t = now / 1000;
-  if (dirty.terrain) { world.rebuildTerrain(); dirty.terrain = false; dirty.trees = true; dirty.grass = 'all'; }
+  if (dirty.terrain) { world.rebuildTerrain(); dirty.terrain = dirty.water = false; dirty.trees = true; dirty.grass = 'all'; }
+  if (dirty.water) {
+    // a grama/flora refaz só a área tocada (dirty.grass já vem com os limites do traço ou do remendo)
+    world.applyWater(); dirty.water = false; dirty.trees = true; dirty.grass ||= world.bounds; dirty.save = now;
+    const { agua, cachoeiras } = world.stats;
+    busy(agua ? `${agua.toLocaleString('pt-BR')} blocos de água · ${cachoeiras} ${cachoeiras === 1 ? 'queda' : 'quedas'} d'água` : 'Sem água no mapa.');
+  }
   if (dirty.variants && now - dirty.variants > 250) { world.invalidateVariants(); dirty.variants = 0; }
   if (dirty.trees) {
     world.rescatterTrees({ sproutTick: dirty.sprout && P.ecology.mode === 'ecossistema' ? P.ecology.tick : null });

@@ -598,11 +598,13 @@ export function scatterTrees(cfg) {
   const wSum = weights.reduce((a, b) => a + b, 0) || 1;
 
   for (const c of cands) {
+    // máscara acima de 1 = mata adensada pelo pincel: ignora o ruído de densidade e aperta o espaçamento
+    const extra = clamp01(c.m - 1);
     const dens = sampleField(fields.density, c.x, c.z);
-    const prob = c.m * lerp(1, smoothstep(p.densityCut - .15, p.densityCut + .15, dens), p.densityInfluence);
+    const prob = Math.min(1, c.m) * lerp(lerp(1, smoothstep(p.densityCut - .15, p.densityCut + .15, dens), p.densityInfluence), 1, extra);
     if (hash3(c.i, c.j, seed + 3) > prob) continue;
     if (slopeAt && slopeAt(c.x, c.z) > p.maxSlope) continue;
-    const r = lerp(p.spacingMin, p.spacingMax, sampleField(fields.spacing, c.x, c.z));
+    const r = lerp(p.spacingMin, p.spacingMax, sampleField(fields.spacing, c.x, c.z)) * (1 - .5 * extra);
     const bx = Math.floor(c.x / bucket), bz = Math.floor(c.z / bucket);
     let ok = true;
     for (let dz = -1; dz <= 1 && ok; dz++) for (let dx = -1; dx <= 1 && ok; dx++) {

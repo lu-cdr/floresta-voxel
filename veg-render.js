@@ -9,6 +9,10 @@ import {
 } from './veg-core.js';
 import { seasonAt, lifeOf, stageKey, deadVariant, genFloraVoxels, scatterFlora } from './veg-core.js';
 import { SOILS, computeEco, suitability, suitabilityGrid, siteQuality } from './veg-eco.js';
+import { WATER_NONE, hasWater, carveHeights, buildWaterGeometry, packWater, unpackWater } from './veg-water.js';
+
+// máscara de árvores vai até 2: de 0 a 1 é a chance normal, de 1 a 2 é mata adensada
+export const TREE_MAX = 2;
 
 // o projeto padrão e a migração moram no núcleo (sem three), para Node/Godot lerem igual
 export { defaultProject, migrateProject };
@@ -22,6 +26,7 @@ export function makeUniforms() {
     uPush: { value: new THREE.Vector4(0, 0, 1.4, 0) },   // x, z, raio, força (cursor / jogador)
     uGBase: { value: new THREE.Color() },
     uGTip: { value: new THREE.Color() },
+    uIce: { value: 0 }, // água congelada (estilo com neve)
   };
 }
 
@@ -88,6 +93,42 @@ export function vegMaterials(U, { grass = false } = {}) {
   return { mat, depth };
 }
 
+/* ---------- água: Phong translúcido, ondas na correnteza, listras descendo nas cachoeiras, espuma ---------- */
+const WATER_COLORS = { shallow: '#62aebd', deep: '#245a78', ice: '#dce8ee' };
+function waterMaterial(U) {
+  const mat = new THREE.MeshPhongMaterial({ vertexColors: true, transparent: true, opacity: .84, shininess: 70, specular: 0x5a6a72 });
+  mat.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, { uTime: U.uTime, uIce: U.uIce });
+    sh.vertexShader = 'attribute vec4 aW; varying vec4 vW; varying vec3 vWPos;\n' + sh.vertexShader.replace('#include <begin_vertex>',
+      '#include <begin_vertex>\n  vW = aW; vWPos = (modelMatrix * vec4(position, 1.)).xyz;');
+    sh.fragmentShader = 'uniform float uTime; uniform float uIce; varying vec4 vW; varying vec3 vWPos;\n' + sh.fragmentShader.replace('#include <color_fragment>', /* glsl */`
+#include <color_fragment>
+  float wt = uTime * (1. - uIce);
+  vec2 wp = floor(vWPos.xz * 4.) / 4.;           // ondas em "pixels" de 1/4 de bloco, no clima voxel
+  float foam = vW.w;
+  if (vW.z > .5) {
+    float u = dot(vWPos.xz, vec2(-vW.y, vW.x));
+    float st = fract(floor(vWPos.y * 8.) / 8. * 1.4 + wt * 1.7 + fract(sin(floor(u * 4.) * 12.9898) * 43758.5));
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.9, .96, 1.), .22 + .5 * smoothstep(.6, .9, st));
+    diffuseColor.a = .92;
+    foam = smoothstep(.55, 1., foam);
+  } else {
+    float sp = length(vW.xy);
+    float still = sin(wp.x * 2.1 + wt * .9) * sin(wp.y * 1.7 - wt * .7);
+    float run = sin(dot(wp, vW.xy) * 3.2 - wt * 3. + sin(dot(wp, vec2(-vW.y, vW.x)) * 1.3));
+    float rip = mix(still, run, step(.01, sp));
+    diffuseColor.rgb *= 1. + .07 * rip;
+    diffuseColor.rgb += vec3(.07) * smoothstep(.75, 1., rip);
+  }
+  foam *= .65 + .35 * sin(wt * 6. + wp.x * 5. + wp.y * 4.);
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.95, .98, 1.), clamp(foam, 0., 1.) * (1. - uIce));
+  diffuseColor.a = mix(diffuseColor.a, .97, uIce);
+`);
+  };
+  mat.customProgramCacheKey = () => 'vegWater';
+  return mat;
+}
+
 /* ---------- geometrias ---------- */
 export function treeGeometry(m) {
   const g = new THREE.BufferGeometry();
@@ -126,6 +167,7 @@ function bladeGeometry(style, width) {
 }
 
 /* ---------- campo visualizado no terreno (debug) ---------- */
+const BED_RGB = [.42, .36, .27]; // leito de rio/lago
 function ramp(t) {
   // azul-escuro → verde → amarelo, legível nos dois temas
   const stops = [[.15, .12, .35], [.13, .45, .55], [.35, .7, .35], [.98, .86, .3]];
@@ -150,13 +192,14 @@ export class VegWorld {
     this.treeMats = vegMaterials(this.U);
     this.grassMats = vegMaterials(this.U, { grass: true });
     this.terrainMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    this.waterMat = waterMaterial(this.U);
     this.variants = new Map();     // key → { geo, mesh, cap, ready }
     this.genQueue = [];
     this.recolorQueue = new Set();
     this.trees = [];
     this.grassChunks = new Map();  // "cx,cz" → InstancedMesh
     this.overlay = 'nenhum';
-    this.stats = { arvores: 0, grama: 0, flora: 0, variantes: 0, fila: 0, recolor: 0, genMs: 0 };
+    this.stats = { arvores: 0, grama: 0, flora: 0, agua: 0, cachoeiras: 0, variantes: 0, fila: 0, recolor: 0, genMs: 0 };
     this.setSize(project.size, project.masks);
   }
 
@@ -171,6 +214,7 @@ export class VegWorld {
     this.speciesMask = new Int8Array(n * n).fill(-1);
     this.soilMask = new Uint8Array(n * n); // índice em SOILS (0 = terra)
     this.floraMask = new Float32Array(n * n); // intenção de sub-bosque pintada (além da que vem sob as árvores)
+    this.waterMask = new Float32Array(n * n).fill(WATER_NONE); // nível da água, igual nas 2×2 células de cada bloco
     this.eco = null;
     if (masks) this.loadMasks(masks);
     this.rebuildTerrain();
@@ -195,16 +239,18 @@ export class VegWorld {
       if (d > 1) continue;
       const f = 1 - Math.pow(d, Math.max(.05, hardness * 6)) ; // dureza: borda macia ou seca
       const k = j * n + i, a = clamp01(f) * strength;
-      if (erase) arr[k] = Math.max(0, arr[k] - a);
+      if (erase) arr[k] = Math.max(0, arr[k] - (layer === 'arvores' ? a * TREE_MAX : a));
       else {
-        arr[k] = Math.min(1, arr[k] + a);
+        // árvores: passar de novo por cima adensa (até TREE_MAX), mais devagar que a primeira demão
+        const v = arr[k] + a;
+        arr[k] = layer !== 'arvores' ? Math.min(1, v) : Math.min(TREE_MAX, v <= 1 ? v : Math.max(1, arr[k]) + (v - Math.max(1, arr[k])) * .4);
         if (layer === 'arvores' && a > .05) this.speciesMask[k] = speciesIdx;
       }
     }
     return { x0: x - radius, x1: x + radius, z0: z - radius, z1: z + radius };
   }
   // camadas pintadas que o histórico guarda (todas maskN × maskN)
-  maskLayers() { return { trees: this.treeMask, grass: this.grassMask, species: this.speciesMask, soil: this.soilMask, flora: this.floraMask }; }
+  maskLayers() { return { trees: this.treeMask, grass: this.grassMask, species: this.speciesMask, soil: this.soilMask, flora: this.floraMask, water: this.waterMask }; }
   // bounds em mundo → retângulo inclusivo de células da máscara (mesma conta do paint)
   maskRect(b) {
     const n = this.maskN, h = this.P.size / 2, r = this.res;
@@ -229,6 +275,37 @@ export class VegWorld {
     return { x0: x - radius, x1: x + radius, z0: z - radius, z1: z + radius };
   }
   soilAt(x, z) { const k = this.maskIndex(x, z); return k < 0 ? 0 : this.soilMask[k]; }
+  /* --- água por bloco: rio desce com o traço, lago enche até o nível do primeiro clique --- */
+  // mode 'rio' | 'lago'; level: nível do traço (rio: o mais baixo até agora; lago: fixo)
+  paintWater(x, z, radius, { mode = 'rio', level = Infinity, erase = false } = {}) {
+    const s = this.P.size, h = s / 2, n = this.maskN;
+    const i0 = Math.max(0, Math.floor(x - radius + h)), i1 = Math.min(s - 1, Math.floor(x + radius + h));
+    const j0 = Math.max(0, Math.floor(z - radius + h)), j1 = Math.min(s - 1, Math.floor(z + radius + h));
+    let changed = false;
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      if (Math.hypot(i - h + .5 - x, j - h + .5 - z) > Math.max(.71, radius)) continue;
+      const base = this.baseHeights[j * s + i];
+      let v;
+      if (erase) v = WATER_NONE;
+      else if (mode === 'lago') { if (base > level + 1e-4) continue; v = level; }
+      else v = Math.min(base, level);
+      const c = j * 2 * n + i * 2;
+      if (this.waterMask[c] === v) continue;
+      this.waterMask[c] = this.waterMask[c + 1] = this.waterMask[c + n] = this.waterMask[c + n + 1] = v;
+      changed = true;
+    }
+    return changed ? { x0: x - radius - 1, x1: x + radius + 1, z0: z - radius - 1, z1: z + radius + 1 } : null;
+  }
+  baseHeightAt(x, z) {
+    const s = this.P.size, h = s / 2;
+    const i = Math.min(s - 1, Math.max(0, Math.floor(x + h))), j = Math.min(s - 1, Math.max(0, Math.floor(z + h)));
+    return this.baseHeights[j * s + i];
+  }
+  waterAt(x, z) {
+    const s = this.P.size, h = s / 2, i = Math.floor(x + h), j = Math.floor(z + h);
+    return i < 0 || j < 0 || i >= s || j >= s ? false : hasWater(this.water[j * s + i]);
+  }
+  fillWater(v = WATER_NONE) { this.waterMask.fill(v); }
   // grade ecológica sob demanda; qualquer mudança em árvores, solo, relevo ou estação a invalida
   getEco() {
     if (this.eco) return this.eco;
@@ -237,6 +314,7 @@ export class VegWorld {
       size, heights: this.heights, amp: terrain.amp,
       soilAt: (i, j) => this.soilAt(i - h + .5, j - h + .5),
       trees: this.trees, season: seasonAt(this.P.ecology).index,
+      water: this.water.some(hasWater) ? this.water : null,
     });
     return this.eco;
   }
@@ -252,12 +330,54 @@ export class VegWorld {
   /* --- terreno em blocos --- */
   rebuildTerrain() {
     const { size, terrain } = this.P;
-    this.heights = new Float32Array(size * size);
+    this.baseHeights = new Float32Array(size * size);
     const h = size / 2;
     for (let j = 0; j < size; j++) for (let i = 0; i < size; i++) {
       const v = sampleField(terrain.field, i - h + .5, j - h + .5);
-      this.heights[j * size + i] = Math.round(v * terrain.amp / terrain.step) * terrain.step;
+      this.baseHeights[j * size + i] = Math.round(v * terrain.amp / terrain.step) * terrain.step;
     }
+    this.applyWater();
+  }
+  // nível por bloco a partir da máscara, leito escavado, terreno e malha da água refeitos
+  applyWater() {
+    const { size, terrain } = this.P;
+    this.water = this.blockWater();
+    this.heights = carveHeights(this.baseHeights, this.water, size, terrain.step);
+    this.buildTerrainMesh();
+    this.buildWaterMesh();
+  }
+  buildWaterMesh() {
+    if (this.waterMesh) { this.group.remove(this.waterMesh); this.waterMesh.geometry.dispose(); this.waterMesh = null; }
+    const W = buildWaterGeometry({ size: this.P.size, water: this.water, heights: this.heights });
+    this.stats.agua = W.blocks; this.stats.cachoeiras = W.falls;
+    if (!W.blocks) return;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(W.position, 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(W.normal, 3));
+    g.setAttribute('aW', new THREE.BufferAttribute(W.water, 4));
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(W.position.length), 3));
+    this.waterDepth = W.depth;
+    this.waterMesh = new THREE.Mesh(g, this.waterMat);
+    this.waterMesh.receiveShadow = true;
+    this.waterMesh.renderOrder = 2;
+    this.group.add(this.waterMesh);
+    this.recolorWater();
+  }
+  recolorWater() {
+    const ice = clamp01((this.P.style.snow || 0) * 1.4);
+    this.U.uIce.value = ice;
+    if (!this.waterMesh) return;
+    const W = { ...WATER_COLORS, ...(this.P.style.water || {}) };
+    const sh = hexToRgb(W.shallow), dp = hexToRgb(W.deep), ic = hexToRgb(W.ice);
+    const col = this.waterMesh.geometry.attributes.color, d = this.waterDepth;
+    for (let v = 0; v < d.length; v++) {
+      const c = srgbToLinear(sh.map((x, k) => lerp(lerp(x, dp[k], d[v]), ic[k], ice)));
+      col.setXYZ(v, c[0], c[1], c[2]);
+    }
+    col.needsUpdate = true;
+  }
+  buildTerrainMesh() {
+    const { size } = this.P, h = size / 2;
     this.eco = null;
     if (this.terrainMesh) { this.group.remove(this.terrainMesh); this.terrainMesh.geometry.dispose(); }
     const pos = [], nor = [], tileOf = [];
@@ -308,11 +428,13 @@ export class VegWorld {
       const t = j * size + i, x = i - h + .5, z = j - h + .5;
       const y = this.heights[t] / Math.max(.01, terrain.amp);
       let c = y < .3 ? C.low.map((v, k) => lerp(v, C.mid[k], y / .3)) : C.mid.map((v, k) => lerp(v, C.high[k], clamp01((y - .3) / .6)));
-      const gm = this.sampleMask(this.grassMask, x, z), tm = this.sampleMask(this.treeMask, x, z);
+      const gm = this.sampleMask(this.grassMask, x, z), tm = Math.min(1, this.sampleMask(this.treeMask, x, z));
       c = c.map((v, k) => lerp(v, C.grass[k], gm * .8));
       c = c.map((v, k) => lerp(v, C.litter[k], tm * .35));
       const so = this.soilAt(x, z);
       if (so) c = c.map((v, k) => lerp(v, soilC[so][k], SOILS[so].mix));
+      if (hasWater(this.water[t])) c = c.map((v, k) => lerp(v, BED_RGB[k], .7));
+      else if (this.nearWater(i, j)) c = c.map(v => v * .82); // margem molhada
       if (snowC) c = c.map((v, k) => lerp(v, snowC[k], style.snow * .7));
       c = shiftHsl(c, 0, 0, (hash3(i, j, 5) - .5) * .035);
       if (field) c = ramp(sampleField(field, x, z)).map((v, k) => lerp(c[k], v, .82));
@@ -327,6 +449,14 @@ export class VegWorld {
       col.setXYZ(v, c[0], c[1], c[2]);
     }
     col.needsUpdate = true;
+  }
+  nearWater(i, j) {
+    const s = this.P.size;
+    for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const ii = i + a, jj = j + b;
+      if (ii >= 0 && jj >= 0 && ii < s && jj < s && hasWater(this.water[jj * s + ii])) return true;
+    }
+    return false;
   }
   // 'umidade' | 'luz' | 'fertilidade' | 'declive' | 'adequacao:<espécie>' → valor por bloco
   ecoOverlay(name) {
@@ -386,7 +516,7 @@ export class VegWorld {
     const P = this.P, prev = new Set(this.trees.map(t => t.id));
     this.trees = scatterTrees({
       size: P.size, seed: P.seed,
-      maskAt: (x, z) => this.sampleMask(this.treeMask, x, z),
+      maskAt: (x, z) => this.waterAt(x, z) ? 0 : this.sampleMask(this.treeMask, x, z),
       speciesMaskAt: (x, z) => { const k = this.maskIndex(x, z); return k < 0 ? -1 : this.speciesMask[k]; },
       heightAt: (x, z) => this.heightAt(x, z),
       slopeAt: (x, z) => this.slopeAt(x, z),
@@ -503,6 +633,7 @@ export class VegWorld {
       trunks.get(k).push(t);
     }
     return (x, z) => {
+      if (this.waterAt(x, z)) return true;
       for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
         const l = trunks.get((Math.floor(x) + dx) + ',' + (Math.floor(z) + dz));
         if (l) for (const t of l) if ((t.x - x) ** 2 + (t.z - z) ** 2 < (.35 * (t.drawScale ?? t.scale)) ** 2) return true;
@@ -518,7 +649,7 @@ export class VegWorld {
     const CH = 16, s = this.P.size, h = s / 2, n = Math.ceil(s / CH), P = this.P, F = P.flora;
     const eco = this.getEco(), season = seasonAt(P.ecology).index;
     const suitAt = (kind, x, z) => { const k = this.ecoIndex(x, z); return k < 0 ? 0 : suitability(kind, eco, k); };
-    const maskAt = (x, z) => Math.max(this.sampleMask(this.floraMask, x, z), this.sampleMask(this.treeMask, x, z) * F.underTrees);
+    const maskAt = (x, z) => Math.max(this.sampleMask(this.floraMask, x, z), Math.min(1, this.sampleMask(this.treeMask, x, z)) * F.underTrees);
     for (let cz = 0; cz < n; cz++) for (let cx = 0; cx < n; cx++) {
       const x0 = -h + cx * CH, z0 = -h + cz * CH;
       if (bounds && (bounds.x1 < x0 || bounds.x0 > x0 + CH || bounds.z1 < z0 || bounds.z0 > z0 + CH)) continue;
@@ -617,6 +748,7 @@ export class VegWorld {
     this.P.style = structuredClone(style);
     if (name) this.P.styleName = name;
     this.recolorTerrain();
+    this.recolorWater();
     if (sameVoxel) for (const [key, v] of this.variants) { if (v.ready) this.recolorQueue.add(key); }
     else this.invalidateVariants();
     this.invalidateFlora();
@@ -644,16 +776,30 @@ export class VegWorld {
   packMasks() {
     const q = a => { const u = new Uint8Array(a.length); for (let i = 0; i < a.length; i++) u[i] = Math.round(a[i] * 255); return u; };
     const b64 = u => { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
-    return { n: this.maskN, trees: b64(q(this.treeMask)), grass: b64(q(this.grassMask)), species: b64(new Uint8Array(this.speciesMask.buffer.slice(0))), soil: b64(this.soilMask), flora: b64(q(this.floraMask)) };
+    return { n: this.maskN, trees: b64(q(this.treeMask.map(v => v / TREE_MAX))), treeMax: TREE_MAX, grass: b64(q(this.grassMask)), species: b64(new Uint8Array(this.speciesMask.buffer.slice(0))), soil: b64(this.soilMask), flora: b64(q(this.floraMask)), water: b64(packWater(this.blockWater())) };
+  }
+  // nível da água por bloco (célula do canto de cada 2×2)
+  blockWater() {
+    const s = this.P.size, n = this.maskN, w = new Float32Array(s * s);
+    for (let j = 0; j < s; j++) for (let i = 0; i < s; i++) w[j * s + i] = this.waterMask[j * 2 * n + i * 2];
+    return w;
   }
   loadMasks(m) {
     if (!m || m.n !== this.maskN) return;
     const un = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
     const t = un(m.trees), g = un(m.grass), sp = un(m.species);
-    for (let i = 0; i < t.length; i++) { this.treeMask[i] = t[i] / 255; this.grassMask[i] = g[i] / 255; }
+    const tk = (m.treeMax || 1) / 255; // projetos antigos guardavam a máscara de árvores em 0..1
+    for (let i = 0; i < t.length; i++) { this.treeMask[i] = t[i] * tk; this.grassMask[i] = g[i] / 255; }
     this.speciesMask.set(new Int8Array(sp.buffer));
     if (m.soil) this.soilMask.set(un(m.soil)); // projetos antigos: tudo terra
     if (m.flora) { const f = un(m.flora); for (let i = 0; i < f.length; i++) this.floraMask[i] = f[i] / 255; }
+    if (m.water) { // por bloco → 2×2 células
+      const w = unpackWater(un(m.water)), s = this.P.size, n = this.maskN;
+      if (w.length === s * s) for (let j = 0; j < s; j++) for (let i = 0; i < s; i++) {
+        const c = j * 2 * n + i * 2;
+        this.waterMask[c] = this.waterMask[c + 1] = this.waterMask[c + n] = this.waterMask[c + n + 1] = w[j * s + i];
+      }
+    }
   }
   toJSON() {
     const r3 = v => Math.round(v * 1000) / 1000;

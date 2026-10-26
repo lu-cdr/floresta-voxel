@@ -2,6 +2,7 @@
    Umidade, luz, fertilidade, declive e solo por bloco do terreno + adequação por espécie
    e o fator que mais limita ("pouca luz", "solo seco"...). Determinística: só depende da entrada. */
 import { clamp01, smoothstep, SPECIES } from './veg-core.js';
+import { waterProximity } from './veg-water.js';
 
 // tipos de solo pintáveis; o índice é o valor guardado na máscara (Uint8)
 export const SOILS = [
@@ -28,7 +29,8 @@ const CROWN = { carvalho: [2.5, .75], betula: [2, .7], cerejeira: [2.8, .75], pi
 const SOIL_MOIST = [0, -.2, -.25, .15];
 const SEASON_MOIST = [.1, -.1, 0, .05];
 
-export function computeEco({ size, heights, amp, soilAt, trees, season }) {
+// water (opcional): nível por bloco (veg-water); perto da água o chão fica mais úmido
+export function computeEco({ size, heights, amp, soilAt, trees, season, water = null }) {
   const n = size * size, half = size / 2, inv = amp > 0 ? 1 / amp : 0;
   const slope = new Float32Array(n), moisture = new Float32Array(n), light = new Float32Array(n).fill(1);
   const fertility = new Float32Array(n), soil = new Uint8Array(n), flow = new Float32Array(n).fill(1);
@@ -70,7 +72,8 @@ export function computeEco({ size, heights, amp, soilAt, trees, season }) {
     const m = moisture[k];
     flow[k] = .5 * m + .125 * ((i > 0 ? moisture[k - 1] : m) + (i < size - 1 ? moisture[k + 1] : m) + (j > 0 ? moisture[k - size] : m) + (j < size - 1 ? moisture[k + size] : m));
   }
-  for (let k = 0; k < n; k++) moisture[k] = clamp01(flow[k] + SOIL_MOIST[soil[k]] + sm);
+  const wet = water ? waterProximity(water, size) : null;
+  for (let k = 0; k < n; k++) moisture[k] = clamp01(flow[k] + SOIL_MOIST[soil[k]] + sm + (wet ? .55 * wet[k] : 0));
   // sombra de copa: cada árvore carimba um disco só na própria caixa (custo ∝ árvores × área da copa)
   for (const t of trees) {
     const c = CROWN[t.species] ?? CROWN.carvalho, r = c[0] * (t.scale ?? 1);
