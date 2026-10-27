@@ -140,7 +140,28 @@
   body.photo .brand, body.photo .tools, body.photo .clock, body.photo .hint, body.photo .lil-gui.root, body.photo .tip { display: none !important; }
   /* passeio em 1ª pessoa: só a cena, uma dica e o botão de voltar; a foto esconde até isso */
   body.walk .left, body.walk .clock, body.walk .hint, body.walk .lil-gui.root, body.walk .tip, body.photo .walkbar { display: none !important; }
-  body.walk #scene { cursor: crosshair; }
+  body.walk #scene { cursor: pointer; }
+  /* mira no centro enquanto o mouse está travado; pausa com convite para clicar quando solto */
+  .crosshair, .walkplay, .walkjump { display: none; }
+  body.walk-locked:not(.photo) .crosshair {
+    display: block; position: fixed; z-index: 6; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; pointer-events: none;
+    background: linear-gradient(#fff, #fff) center / 2px 18px no-repeat, linear-gradient(#fff, #fff) center / 18px 2px no-repeat;
+    mix-blend-mode: difference;
+  }
+  body.walk-paused .walkplay {
+    display: grid; gap: 4px; position: fixed; z-index: 7; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    font: 400 18px/1.2 var(--f-pixel); letter-spacing: .04em; color: var(--ink); text-align: center;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 16px 22px; cursor: pointer;
+  }
+  .walkplay small { font: 500 12px/1.2 var(--f-body); letter-spacing: 0; color: var(--muted); }
+  body.walk:not(.photo) .walkjump { display: none; }
+  @media (pointer: coarse) {
+    body.walk:not(.photo) .walkjump {
+      display: block; position: fixed; z-index: 6; right: 24px; bottom: 76px; width: 72px; height: 72px; border-radius: 50%;
+      font: 600 13px var(--f-body); color: var(--ink); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); opacity: .9;
+      touch-action: none;
+    }
+  }
   .walkbar {
     position: fixed; z-index: 6; bottom: 16px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 32px);
     display: flex; align-items: center; gap: 12px; padding: 7px 8px 7px 14px;
@@ -357,9 +378,12 @@
 </div>
 <div class="flash" id="flash"></div>
 <div class="walkbar" id="walkbar" role="group" aria-label="Passeio" hidden>
-  <span id="walkHint">WASD anda · clique e mova o mouse para olhar · Shift corre · P foto · Esc volta</span>
+  <span id="walkHint"></span>
   <button id="wExit" type="button">Voltar ao editor</button>
 </div>
+<div class="crosshair" aria-hidden="true"></div>
+<button class="walkplay" id="walkPlay" type="button">Clique para jogar<small>Esc de novo volta ao editor</small></button>
+<button class="walkjump" id="wJump" type="button" aria-label="Pular">Pular</button>
 <div class="hint" id="hint">Arraste para pintar · botão direito gira · roda dá zoom · Shift apaga · [ ] raio · Ctrl+Z desfaz</div>
 <input type="file" id="fileProject" accept=".json,application/json" hidden>
 <input type="file" id="fileStyle" accept=".json,application/json" hidden>
@@ -1144,6 +1168,7 @@ function setPhoto(on) {
   photoOn = on;
   document.body.classList.toggle('photo', on);
   $('#photobar').hidden = !on;
+  if (walkOn) syncLock(); // a pausa do passeio some na foto e volta depois dela
   ring.visible = !on && !walkOn && brush.tool !== 'camera';
   if (on && document.pointerLockElement) document.exitPointerLock(); // no passeio: soltar o mouse para usar a barra
   // na foto o botão esquerdo gira a câmera, como na ferramenta Câmera (no passeio, arrastar olha)
@@ -1207,12 +1232,15 @@ function setWalk(on) {
     const t = controls.target, d = t.clone().sub(walkBack.pos);
     walker.world = world;
     walker.start(t.x, t.z, Math.atan2(-d.x, -d.z));
-    $('#walkHint').textContent = matchMedia('(pointer: coarse)').matches
-      ? 'Arraste à esquerda para andar e à direita para olhar'
-      : 'WASD anda · clique e mova o mouse para olhar · Shift corre · P foto · Esc volta';
-    busy('Passeando. Esc ou V volta ao editor.');
+    $('#walkHint').textContent = touch()
+      ? 'Arraste à esquerda para andar (longe corre) e à direita para olhar'
+      : 'WASD anda · Espaço pula · W W corre · Shift agacha · P foto · Esc solta o mouse';
+    document.activeElement?.blur?.(); // Espaço pula, não "clica" de novo no botão focado
+    walker.lock(); // o clique no botão Passear já vale como gesto para travar o mouse
+    syncLock();
   } else {
     walker.stop();
+    document.body.classList.remove('walk-locked', 'walk-paused');
     camera = walkBack.cam; persp.position.copy(walkBack.pos); persp.quaternion.copy(walkBack.quat);
     controls.target.copy(walkBack.target); controls.enabled = true;
     ring.visible = brush.tool !== 'camera';
@@ -1221,11 +1249,17 @@ function setWalk(on) {
 }
 $('#cWalk').addEventListener('click', () => setWalk(true));
 $('#wExit').addEventListener('click', () => setWalk(false));
-// Esc com o mouse travado só solta a trava (o navegador engole a tecla): avisa que o próximo Esc sai
-document.addEventListener('pointerlockchange', () => {
-  if (!walkOn || photoOn) return;
-  busy(document.pointerLockElement ? '' : 'Clique para olhar de novo · Esc volta ao editor');
-});
+$('#wJump').addEventListener('pointerdown', e => { e.preventDefault(); walker.jump(); });
+const touch = () => matchMedia('(pointer: coarse)').matches;
+// mouse travado = jogando (mira no centro); solto = pausa com "Clique para jogar". O Esc que solta
+// a trava é engolido pelo navegador, então o próximo Esc é que volta ao editor.
+function syncLock() {
+  const locked = document.pointerLockElement === canvas;
+  document.body.classList.toggle('walk-locked', walkOn && (locked || touch()));
+  document.body.classList.toggle('walk-paused', walkOn && !locked && !touch() && !photoOn);
+}
+document.addEventListener('pointerlockchange', syncLock);
+$('#walkPlay').addEventListener('click', () => walker.lock());
 
 /* ---------- laço ---------- */
 function resize() {

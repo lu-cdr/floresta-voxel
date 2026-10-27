@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { collide, freeSpot, stepTo, FirstPerson, BODY_R, STEP_UP, EYE } from '../veg-walk.js';
+import { collide, freeSpot, stepTo, FirstPerson, BODY_R, STEP_UP, EYE, SPEED, GRAVITY, JUMP_V } from '../veg-walk.js';
 
 // mundo mínimo: 32×32, chão plano com um muro alto em x ≥ 5, água em z ≥ 10
 const fakeWorld = (o = {}) => ({
@@ -52,4 +52,50 @@ test('1ª pessoa: W anda para onde olha, câmera na altura dos olhos', () => {
   fp.frozen = true; const z = fp.pos.z;
   for (let i = 0; i < 60; i++) fp.update(1 / 60);
   assert.ok(Math.abs(fp.pos.z - z) < .5, 'congelado (modo foto) só desliza enquanto freia');
+});
+
+const fp = (world = fakeWorld()) => {
+  globalThis.window ??= { addEventListener() {} };
+  globalThis.document ??= { addEventListener() {}, pointerLockElement: null };
+  const cam = { fov: 42, position: { set(x, y, z) { Object.assign(this, { x, y, z }); } }, rotation: { set() {} }, updateProjectionMatrix() {} };
+  const p = new FirstPerson({ world, camera: cam, dom: { addEventListener() {} } });
+  return { p, cam };
+};
+const run = (p, sec, fn) => { for (let i = 0; i < sec * 60; i++) { fn?.(i); p.update(1 / 60); } };
+
+test('pulo: sobe ~1 m, volta ao chão e não pula de novo no ar', () => {
+  const { p } = fp();
+  p.start(0, 0, 0);
+  p.keys.add('Space');
+  let top = 0; run(p, .2, () => { top = Math.max(top, p.pos.y); });
+  p.keys.delete('Space');
+  run(p, .6, () => { top = Math.max(top, p.pos.y); });
+  assert.ok(top > (JUMP_V * JUMP_V) / (2 * GRAVITY) - .1 && top < 1.3, `altura ${top}`);
+  assert.ok(p.onGround && Math.abs(p.pos.y) < 1e-9, 'pousou');
+  p.vy = 2; p.onGround = false; p.jump(); p.update(1 / 60);
+  assert.ok(p.vy < 2, 'no ar o pulo não renova');
+});
+
+test('degrau de 1 m só com pulo; agachado não cai da borda', () => {
+  const ledge = fakeWorld({ heightAt: x => (x <= -3 ? 1 : 0), waterAt: () => false });
+  const a = fp(ledge).p; a.start(0, 0, Math.PI / 2); // yaw π/2 olha para −x
+  a.keys.add('KeyW'); run(a, 1.5);
+  assert.ok(a.pos.x > -3 && a.pos.y < .01, 'andando para no muro de 1 m');
+  a.keys.add('Space'); run(a, 1);
+  assert.ok(a.pos.x < -3 && a.pos.y > .9, `pulando sobe: ${a.pos.x}, ${a.pos.y}`);
+  const b = fp(ledge).p; b.start(-6, 0, -Math.PI / 2); // em cima, olhando para +x (a borda em x = −3)
+  b.keys.add('ShiftLeft'); b.keys.add('KeyW'); run(b, 4);
+  assert.ok(b.pos.x <= -3 && b.pos.y > .99, `agachado parou na borda: ${b.pos.x}`);
+});
+
+test('velocidades: agachar < andar < correr (W duas vezes), FOV abre correndo e volta ao sair', () => {
+  const dist = setup => { const { p, cam } = fp(); p.start(0, 8, 0); setup(p); run(p, 1); return { d: 8 - p.pos.z, p, cam }; };
+  const sneak = dist(p => { p.keys.add('KeyW'); p.keys.add('ShiftLeft'); }).d;
+  const walk = dist(p => p.keys.add('KeyW')).d;
+  const r = dist(p => { p.keys.add('KeyW'); p.sprint = true; });
+  assert.ok(sneak < walk && walk < r.d, `${sneak} < ${walk} < ${r.d}`);
+  assert.ok(Math.abs(walk - SPEED.walk) < .4);
+  assert.ok(r.cam.fov > 70);
+  r.p.stop();
+  assert.equal(r.cam.fov, 42, 'FOV do editor de volta');
 });
