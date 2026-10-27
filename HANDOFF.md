@@ -22,6 +22,7 @@ florestas inteiras e menu de debug. Detalhes técnicos completos em `README.md`.
 | `veg-history.js` | Desfazer/refazer: `History` + remendos de máscara por retângulo. |
 | `veg-eco.js` | Grade ecológica (umidade, luz, fertilidade, declive, solo), `PREFS` de espécies e flora, adequação e fator limitante. |
 | `veg-water.js` | Água por bloco (sem three): `WATER_NONE`, `carveHeights` (leito), `waterFlow` (correnteza), `buildWaterGeometry` (superfície, paredes, cachoeiras, espuma), `waterProximity` (umidade), `packWater`/`unpackWater`. |
+| `veg-relief.js` | Relevo esculpido (sem three): `sculptRelief` (subir/descer/nivelar/suavizar/original), `reliefHeights`, `packRelief`/`unpackRelief`, `RELIEF_MAX`. |
 | `veg-photo.js` | Modo foto: `capturePhoto` em 2×/4× com moldura e legenda. |
 | `tests/` | `npm test` (= `node --test "tests/*.test.mjs"`): determinismo do núcleo, localidade do scatter, migração v1→v2. `fixtures/projeto-v1.json` é um projeto salvo no formato antigo. |
 
@@ -138,3 +139,20 @@ Em menos de cinco minutos: pintar/apagar → "Próxima estação" (cores e, no E
 3. **TIGHT:** Tempo — `applyWater` ≈ 28 ms, rescatter ≈ 22 ms por quadro enquanto pinta água; grama/flora só na área tocada (o mapa todo custava 200 ms). Integridade — desfazer/refazer, Shift, autosave e reload conferidos. Game feel — rótulo do histórico "rio/lago/cachoeira/apagar água", nota explicando cada forma. Harmonia — água em "pixels" de 1/4 de bloco, Borracha virou botão largo. Testes — `npm test` 61 (7 novos em `tests/water.test.mjs`).
 4. **Verificação:** Playwright 1280×860: 4 repasses de árvores 615 → 652, Ctrl+Z volta; rio, lago e cachoeira desenhados; inverno congela; `exemplo-jogo.html` mostra a água; 375 px sem rolagem horizontal; console só com o favicon 404 de sempre.
 5. **Riscos/continuação:** água não entra no export GLB/`baked` nem no porte Godot ainda; no runtime o jogador anda pelo leito (sem nadar). Mudar relevo/degrau depois de pintar mantém o nível salvo da água (pode ficar acima/abaixo do novo terreno). "Limpar o mapa" não apaga água. Painel da esquerda ganha barra de rolagem em 1280×860 com a nota da água aberta.
+
+## Direção decidida em 2026-10-27
+
+Plataforma: continua HTML/three.js. Demo grátis na web puxa wishlist; versão paga na Steam com
+wrapper (Tauri/Electron). **Porte Godot saiu do caminho crítico.** Exploração = modo "Passear"
+curto em 1ª pessoa dentro do editor. Próximo marco: **"Paisagem"** — P1 relevo, P2 rochas,
+P3 arbustos/juncos, P4 margens d'água, P5 Passear, P6 vitrine (itch.io + página). Monetização
+(página Steam cedo, premium US$ 8–15, "Voxel Nature Kit" no itch) só depois do marco. Detalhe em
+`GDD.md` §11.
+
+### P1 — Pincel de relevo (2026-10-27)
+
+1. **Entrega:** ferramenta **Relevo** (tecla 6) com Subir / Descer / Nivelar / Suavizar / Voltar ao original. Subir/descer: cada traço ergue uma cúpula de até 1 + força×5 degraus sobre o terreno do começo do traço (repassar no mesmo traço não empilha; solte e pinte de novo para subir mais). Nivelar usa a altura do primeiro clique. Shift: subir↔descer; nos outros modos volta ao original. Borracha ganhou "só relevo". Árvores, grama, flora e água acompanham o chão.
+2. **Arquivos/contratos:** `veg-relief.js` novo. `VegWorld`: `noiseHeights` (só ruído) → `baseHeights` = ruído + `reliefMask`×`terrain.step`; `reliefMask` (Float32, degraus, mesmo valor nas 2×2 células de cada bloco → entra em `maskLayers()` e no histórico), `beginRelief`, `paintRelief`, `blockRelief`, `applyRelief` (refaz alturas e chama `applyWater`). `rebuildTerrain` agora só recalcula o ruído. Save: `masks.relief` (Int8 por bloco, b64); projetos sem ele = relevo só do ruído. Editor: `dirty.relief`, `RELIEF_NOTES`/`RELIEF_LABELS`, raio próprio 5; Borracha deixou de ocupar a linha inteira (grade 4×2).
+3. **TIGHT:** Tempo — `applyRelief` ≈ 24 ms + rescatter ≈ 21 ms por quadro enquanto esculpe (mesma ordem da água); grama/flora só na área tocada. Integridade — desfazer/refazer exatos (soma do relevo 2266 → 0 → 2266), reload mantém, runtime abre o projeto. Game feel — nota por modo, rótulo no histórico ("subir terreno"…). Harmonia — degraus inteiros: o morro fica em terraços voxel, coerente com o resto. Testes — `npm test` 68 (7 novos em `tests/relief.test.mjs`).
+4. **Verificação:** navegador 1280×860: dois traços de subir (máx. 8 degraus), Ctrl+Z ×2 / Ctrl+Shift+Z ×2, borracha abre o morro e mostra os terraços, reload; 375 px sem rolagem horizontal; `exemplo-jogo.html` sem erros; console limpo.
+5. **Riscos/continuação:** água pintada guarda nível absoluto — erguer o chão em volta de um lago deixa a água num poço; baixar o chão sob ela deixa a água "flutuando" como queda. Trocar semente/campo do relevo mantém o esculpido somado ao ruído novo. Suavizar por muitas passadas perde volume (arredondamento). Próximo: P2, rochas.

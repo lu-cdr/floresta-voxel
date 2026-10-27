@@ -277,6 +277,19 @@ Para manter compatibilidade, projetos antigos recebem valores padrão para campo
 4. cenários adicionais e compartilhamento de seeds/projetos;
 5. LOD/impostores para mapas maiores.
 
+### Marco "Paisagem" (decidido em 27/10/2026, antes do Marco 2)
+
+**Objetivo:** cada screenshot e GIF mais bonito — é o que puxa wishlist.
+
+1. pincel de relevo (subir, descer, nivelar, suavizar);
+2. rochas e pedregulhos em voxel, pintáveis e automáticos em solo rochoso/encosta;
+3. arbustos e juncos;
+4. margens d'água (areia/cascalho/lama automáticos, ondulação, espuma);
+5. modo Passear em 1ª pessoa dentro do editor;
+6. vitrine: demo web + página itch.io.
+
+**Plataforma e venda:** continua no navegador (HTML/three.js). Demo web grátis e limitada; versão completa paga (faixa US$ 8–15) na Steam, empacotada com Tauri/Electron. O porte Godot deixa de ser pré-requisito. Sem anúncios nem microtransações (ver §7).
+
 ## 12. Recortes explícitos (por enquanto)
 
 Para proteger o foco, estas ideias não entram antes do Marco 3:

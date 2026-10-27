@@ -235,7 +235,8 @@
     <button data-tool="solo" aria-pressed="false">Solo <kbd>3</kbd></button>
     <button data-tool="flora" aria-pressed="false" title="Samambaias, flores e musgo onde o lugar serve">Flora <kbd>4</kbd></button>
     <button data-tool="agua" aria-pressed="false" title="Rios, lagos e cachoeiras">Água <kbd>5</kbd></button>
-    <button data-tool="borracha" aria-pressed="false" class="span">Borracha <kbd>E</kbd></button>
+    <button data-tool="relevo" aria-pressed="false" title="Subir, descer, nivelar e suavizar o terreno">Relevo <kbd>6</kbd></button>
+    <button data-tool="borracha" aria-pressed="false">Borracha <kbd>E</kbd></button>
   </div>
   <div class="seg" id="histSeg">
     <button id="bUndo" disabled aria-keyshortcuts="Control+Z" title="Nada para desfazer">↶ Desfazer</button>
@@ -257,8 +258,12 @@
     <select id="bWater"><option value="rio">Rio</option><option value="lago">Lago</option><option value="cachoeira">Cachoeira</option></select>
   </div>
   <p class="note" data-for="agua" id="waterNote"></p>
+  <div class="row" data-for="relevo"><label for="bRelief">Modo</label>
+    <select id="bRelief"><option value="subir">Subir</option><option value="descer">Descer</option><option value="nivelar">Nivelar</option><option value="suavizar">Suavizar</option><option value="original">Voltar ao original</option></select>
+  </div>
+  <p class="note" data-for="relevo" id="reliefNote"></p>
   <div class="row" data-for="borracha"><label for="bErase">Borracha apaga</label>
-    <select id="bErase"><option value="ambos">tudo que cresce</option><option value="arvores">só árvores</option><option value="grama">só grama</option><option value="flora">só flora</option><option value="agua">só água</option></select>
+    <select id="bErase"><option value="ambos">tudo que cresce</option><option value="arvores">só árvores</option><option value="grama">só grama</option><option value="flora">só flora</option><option value="agua">só água</option><option value="relevo">só relevo</option></select>
   </div>
   </details>
   <details class="sec" id="secView" open><summary>Ver no terreno</summary>
@@ -371,8 +376,8 @@ const persp = new THREE.PerspectiveCamera(42, 1, .1, 800);
 const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -400, 800);
 let camera = persp;
 let controls;
-const brush = { tool: 'arvores', radius: 7, strength: .6, hard: .35, species: -1, soil: 1, erase: 'ambos', water: 'rio' };
-const toolRadius = { agua: 2 }; // cada ferramenta lembra o próprio raio (rio pede pincel fino)
+const brush = { tool: 'arvores', radius: 7, strength: .6, hard: .35, species: -1, soil: 1, erase: 'ambos', water: 'rio', relief: 'subir' };
+const toolRadius = { agua: 2, relevo: 5 }; // cada ferramenta lembra o próprio raio (rio pede pincel fino)
 function makeControls() {
   const prev = controls ? { t: controls.target.clone() } : null;
   controls?.dispose();
@@ -436,6 +441,16 @@ const WATER_NOTES = {
 };
 const syncWater = () => { brush.water = $('#bWater').value; $('#waterNote').textContent = WATER_NOTES[brush.water]; };
 $('#bWater').addEventListener('change', syncWater); syncWater();
+const RELIEF_NOTES = {
+  subir: 'Cada traço ergue um morro sobre o terreno; a força diz quantos degraus. Para subir mais, solte e pinte de novo. Shift desce.',
+  descer: 'Cada traço cava um vale; solte e pinte de novo para afundar mais. Shift sobe.',
+  nivelar: 'Clique na altura que quer e arraste: o terreno sobe ou desce até ela. Bom para platôs e trilhas. Shift volta ao original.',
+  suavizar: 'Arredonda degraus soltos e quinas, puxando cada bloco para a média dos vizinhos. Shift volta ao original.',
+  original: 'Desfaz o que foi esculpido onde o pincel passa, de volta ao relevo do ruído.',
+};
+const RELIEF_LABELS = { subir: 'subir terreno', descer: 'descer terreno', nivelar: 'nivelar terreno', suavizar: 'suavizar terreno', original: 'relevo original' };
+const syncRelief = () => { brush.relief = $('#bRelief').value; $('#reliefNote').textContent = RELIEF_NOTES[brush.relief]; };
+$('#bRelief').addEventListener('change', syncRelief); syncRelief();
 
 // anel do pincel acompanhando o relevo
 const RING_N = 72;
@@ -457,7 +472,7 @@ function updateRing() {
 const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
 const pointers = new Set();
 let painting = false, shiftDown = false;
-const dirty = { water: false, flora: false, sprout: false, trees: false, grass: null, colors: false, terrain: false, variants: 0, save: 0 };
+const dirty = { relief: false, water: false, flora: false, sprout: false, trees: false, grass: null, colors: false, terrain: false, variants: 0, save: 0 };
 const mergeBounds = (a, b) => !a ? b : { x0: Math.min(a.x0, b.x0), x1: Math.max(a.x1, b.x1), z0: Math.min(a.z0, b.z0), z1: Math.max(a.z1, b.z1) };
 
 /* ---------- desfazer / refazer ----------
@@ -468,6 +483,7 @@ function markMasks(bounds, patch) {
   if (patch.after.trees || patch.after.species) dirty.trees = dirty.sprout = true;
   if (patch.after.soil) world.eco = null;
   if (patch.after.water) dirty.water = true;
+  if (patch.after.relief) dirty.relief = true;
   if (dirty.grass !== 'all') dirty.grass = mergeBounds(dirty.grass, bounds);
   dirty.colors = true;
   dirty.save = performance.now();
@@ -536,7 +552,7 @@ function stamp(e, first) {
   if (!hit) return;
   cursor.x = hit.x; cursor.z = hit.z; cursor.on = true;
   const erase = brush.tool === 'borracha' || e.shiftKey;
-  const layers = ['grama', 'arvores', 'solo', 'flora', 'agua'].includes(brush.tool) ? [brush.tool]
+  const layers = ['grama', 'arvores', 'solo', 'flora', 'agua', 'relevo'].includes(brush.tool) ? [brush.tool]
     : brush.erase === 'ambos' ? ['arvores', 'grama', 'flora'] : [brush.erase];
   const s = brush.strength * (erase ? 1 : .5);
   // carimbos espaçados ao longo do traço, para um arrasto rápido não deixar falhas
@@ -546,6 +562,15 @@ function stamp(e, first) {
   for (let i = first ? 0 : 1; i <= n; i++) {
     const x = from.x + (hit.x - from.x) * i / n, z = from.z + (hit.z - from.z) * i / n;
     for (const L of layers) {
+      if (L === 'relevo') {
+        // Shift: subir ↔ descer; nos outros modos (e na borracha) volta ao original
+        const mode = brush.tool === 'borracha' ? 'original' : !e.shiftKey ? brush.relief
+          : brush.relief === 'subir' ? 'descer' : brush.relief === 'descer' ? 'subir' : 'original';
+        if (stroke) { stroke.target ??= world.baseHeightAt(x, z); stroke.reliefMode ??= mode; }
+        const b = world.paintRelief(x, z, brush.radius, { mode, strength: brush.strength, hard: brush.hard, target: stroke?.target ?? world.baseHeightAt(x, z) });
+        if (b) { dirty.relief = true; if (dirty.grass !== 'all') dirty.grass = mergeBounds(dirty.grass, b); if (stroke) stroke.bounds = mergeBounds(stroke.bounds, b); }
+        continue;
+      }
       if (L === 'agua') {
         // rio: nível = o mais baixo do traço até aqui; lago: nível do primeiro clique;
         // cachoeira: nível do clique em volta dele, depois 3 degraus abaixo (e seguindo o terreno se ele descer mais)
@@ -570,6 +595,7 @@ function stamp(e, first) {
   }
   if (stroke && !stroke.label) stroke.label = brush.tool === 'solo' ? (erase ? 'solo de volta a terra' : 'solo: ' + SOILS[brush.soil].label.toLowerCase())
     : brush.tool === 'agua' ? (erase ? 'apagar água' : brush.water)
+    : stroke.reliefMode ? RELIEF_LABELS[stroke.reliefMode]
     : erase ? 'borracha' : brush.tool === 'grama' ? 'pincel de grama' : brush.tool === 'flora' ? 'pincel de flora' : 'pincel de árvores';
   lastHit = hit;
   dirty.colors = true;
@@ -582,6 +608,7 @@ canvas.addEventListener('pointerdown', e => {
     painting = true;
     canvas.setPointerCapture(e.pointerId);
     stroke = { before: snapshotLayers(world.maskLayers()), bounds: null, label: '' };
+    world.beginRelief();
     stamp(e, true);
   }
 });
@@ -620,6 +647,7 @@ addEventListener('keydown', e => {
   else if (k === '3') setTool('solo');
   else if (k === '4') setTool('flora');
   else if (k === '5') setTool('agua');
+  else if (k === '6') setTool('relevo');
   else if (k === 'e') setTool('borracha');
   else if (k === '[') setRadius(Math.max(1, brush.radius - 1));
   else if (k === ']') setRadius(Math.min(24, brush.radius + 1));
@@ -1109,6 +1137,10 @@ let frames = 0, fpsT = performance.now();
 function frame(now) {
   const t = now / 1000;
   if (dirty.terrain) { world.rebuildTerrain(); dirty.terrain = dirty.water = false; dirty.trees = true; dirty.grass = 'all'; }
+  if (dirty.relief) {
+    // relevo refaz alturas e água (o leito acompanha); árvores sobem/descem com o chão
+    world.applyRelief(); dirty.relief = dirty.water = false; dirty.trees = true; dirty.grass ||= world.bounds; dirty.save = now;
+  }
   if (dirty.water) {
     // a grama/flora refaz só a área tocada (dirty.grass já vem com os limites do traço ou do remendo)
     world.applyWater(); dirty.water = false; dirty.trees = true; dirty.grass ||= world.bounds; dirty.save = now;

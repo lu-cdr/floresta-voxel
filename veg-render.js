@@ -10,6 +10,7 @@ import {
 import { seasonAt, lifeOf, stageKey, deadVariant, genFloraVoxels, scatterFlora } from './veg-core.js';
 import { SOILS, computeEco, suitability, suitabilityGrid, siteQuality } from './veg-eco.js';
 import { WATER_NONE, hasWater, carveHeights, buildWaterGeometry, packWater, unpackWater } from './veg-water.js';
+import { sculptRelief, reliefHeights, packRelief, unpackRelief } from './veg-relief.js';
 
 // máscara de árvores vai até 2: de 0 a 1 é a chance normal, de 1 a 2 é mata adensada
 export const TREE_MAX = 2;
@@ -215,6 +216,7 @@ export class VegWorld {
     this.soilMask = new Uint8Array(n * n); // índice em SOILS (0 = terra)
     this.floraMask = new Float32Array(n * n); // intenção de sub-bosque pintada (além da que vem sob as árvores)
     this.waterMask = new Float32Array(n * n).fill(WATER_NONE); // nível da água, igual nas 2×2 células de cada bloco
+    this.reliefMask = new Float32Array(n * n); // degraus esculpidos, igual nas 2×2 células de cada bloco
     this.eco = null;
     if (masks) this.loadMasks(masks);
     this.rebuildTerrain();
@@ -250,7 +252,7 @@ export class VegWorld {
     return { x0: x - radius, x1: x + radius, z0: z - radius, z1: z + radius };
   }
   // camadas pintadas que o histórico guarda (todas maskN × maskN)
-  maskLayers() { return { trees: this.treeMask, grass: this.grassMask, species: this.speciesMask, soil: this.soilMask, flora: this.floraMask, water: this.waterMask }; }
+  maskLayers() { return { trees: this.treeMask, grass: this.grassMask, species: this.speciesMask, soil: this.soilMask, flora: this.floraMask, water: this.waterMask, relief: this.reliefMask }; }
   // bounds em mundo → retângulo inclusivo de células da máscara (mesma conta do paint)
   maskRect(b) {
     const n = this.maskN, h = this.P.size / 2, r = this.res;
@@ -296,6 +298,30 @@ export class VegWorld {
     }
     return changed ? { x0: x - radius - 1, x1: x + radius + 1, z0: z - radius - 1, z1: z + radius + 1 } : null;
   }
+  /* --- relevo esculpido: subir/descer/nivelar/suavizar/original, por bloco --- */
+  // começo do traço: subir/descer medem a cúpula a partir daqui
+  beginRelief() { this.reliefStart = this.blockRelief(); }
+  paintRelief(x, z, radius, { mode = 'subir', strength = .6, hard = .35, target = 0 } = {}) {
+    const s = this.P.size, n = this.maskN, relief = this.blockRelief();
+    const rect = sculptRelief(relief, { size: s, step: this.P.terrain.step, noise: this.noiseHeights, start: this.reliefStart || relief, x, z, radius, strength, hard, mode, target });
+    if (!rect) return null;
+    for (let j = rect.j0; j <= rect.j1; j++) for (let i = rect.i0; i <= rect.i1; i++) {
+      const c = j * 2 * n + i * 2, v = relief[j * s + i];
+      this.reliefMask[c] = this.reliefMask[c + 1] = this.reliefMask[c + n] = this.reliefMask[c + n + 1] = v;
+    }
+    const h = s / 2; // um bloco a mais: a parede do vizinho muda junto
+    return { x0: rect.i0 - h - 1, x1: rect.i1 - h + 2, z0: rect.j0 - h - 1, z1: rect.j1 - h + 2 };
+  }
+  blockRelief() {
+    const s = this.P.size, n = this.maskN, r = new Float32Array(s * s);
+    for (let j = 0; j < s; j++) for (let i = 0; i < s; i++) r[j * s + i] = this.reliefMask[j * 2 * n + i * 2];
+    return r;
+  }
+  // relevo pintado mudou: alturas de novo, água por cima (leito, cachoeiras) e malhas
+  applyRelief() {
+    this.baseHeights = reliefHeights(this.noiseHeights, this.blockRelief(), this.P.terrain.step);
+    this.applyWater();
+  }
   baseHeightAt(x, z) {
     const s = this.P.size, h = s / 2;
     const i = Math.min(s - 1, Math.max(0, Math.floor(x + h))), j = Math.min(s - 1, Math.max(0, Math.floor(z + h)));
@@ -330,13 +356,13 @@ export class VegWorld {
   /* --- terreno em blocos --- */
   rebuildTerrain() {
     const { size, terrain } = this.P;
-    this.baseHeights = new Float32Array(size * size);
+    this.noiseHeights = new Float32Array(size * size);
     const h = size / 2;
     for (let j = 0; j < size; j++) for (let i = 0; i < size; i++) {
       const v = sampleField(terrain.field, i - h + .5, j - h + .5);
-      this.baseHeights[j * size + i] = Math.round(v * terrain.amp / terrain.step) * terrain.step;
+      this.noiseHeights[j * size + i] = Math.round(v * terrain.amp / terrain.step) * terrain.step;
     }
-    this.applyWater();
+    this.applyRelief();
   }
   // nível por bloco a partir da máscara, leito escavado, terreno e malha da água refeitos
   applyWater() {
@@ -776,7 +802,7 @@ export class VegWorld {
   packMasks() {
     const q = a => { const u = new Uint8Array(a.length); for (let i = 0; i < a.length; i++) u[i] = Math.round(a[i] * 255); return u; };
     const b64 = u => { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
-    return { n: this.maskN, trees: b64(q(this.treeMask.map(v => v / TREE_MAX))), treeMax: TREE_MAX, grass: b64(q(this.grassMask)), species: b64(new Uint8Array(this.speciesMask.buffer.slice(0))), soil: b64(this.soilMask), flora: b64(q(this.floraMask)), water: b64(packWater(this.blockWater())) };
+    return { n: this.maskN, trees: b64(q(this.treeMask.map(v => v / TREE_MAX))), treeMax: TREE_MAX, grass: b64(q(this.grassMask)), species: b64(new Uint8Array(this.speciesMask.buffer.slice(0))), soil: b64(this.soilMask), flora: b64(q(this.floraMask)), water: b64(packWater(this.blockWater())), relief: b64(new Uint8Array(packRelief(this.blockRelief()).buffer)) };
   }
   // nível da água por bloco (célula do canto de cada 2×2)
   blockWater() {
@@ -793,6 +819,13 @@ export class VegWorld {
     this.speciesMask.set(new Int8Array(sp.buffer));
     if (m.soil) this.soilMask.set(un(m.soil)); // projetos antigos: tudo terra
     if (m.flora) { const f = un(m.flora); for (let i = 0; i < f.length; i++) this.floraMask[i] = f[i] / 255; }
+    if (m.relief) { // por bloco → 2×2 células; projetos sem ele: relevo só do ruído
+      const r = unpackRelief(un(m.relief)), s = this.P.size, n = this.maskN;
+      if (r.length === s * s) for (let j = 0; j < s; j++) for (let i = 0; i < s; i++) {
+        const c = j * 2 * n + i * 2;
+        this.reliefMask[c] = this.reliefMask[c + 1] = this.reliefMask[c + n] = this.reliefMask[c + n + 1] = r[j * s + i];
+      }
+    }
     if (m.water) { // por bloco → 2×2 células
       const w = unpackWater(un(m.water)), s = this.P.size, n = this.maskN;
       if (w.length === s * s) for (let j = 0; j < s; j++) for (let i = 0; i < s; i++) {
