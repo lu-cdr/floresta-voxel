@@ -41,6 +41,8 @@
 import * as THREE from 'three';
 import { VegWorld, defaultProject, migrateProject } from './veg-render.js';
 import { lightAt } from './veg-core.js';
+import { landscapeOnly } from './veg-landscape.js';
+landscapeOnly();
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });

@@ -184,7 +184,7 @@
   }
   .lil-gui .title { font-weight: 600; }
 
-  @media (max-width: 760px) {
+  @media (max-width: 760px) and (min-height: 521px) {
     .left { width: auto; right: 16px; max-height: none; overflow: visible; pointer-events: none; }
     .left .brand { align-self: flex-start; }
     .left .tools { position: fixed; top: auto; bottom: 186px; left: 16px; transform: none; width: calc(100% - 32px); grid-template-columns: 1fr 1fr; pointer-events: auto; max-height: calc(100% - 270px); overflow-y: auto; }
@@ -205,6 +205,28 @@
     .brand p, .guide { display: none !important; }
     .lil-gui.root { top: 86px; }
     .lil-gui.root { width: min(300px, calc(100% - 24px)) !important; max-height: 45%; }
+  }
+  /* celular deitado (e janelas baixas): mesmo layout do computador, compacto.
+     Coluna da esquerda rola sozinha; o relógio fica à direita dela em até duas linhas. */
+  @media (max-height: 520px) and (min-width: 600px) {
+    .left { top: 8px; left: 8px; width: 210px; max-height: calc(100% - 16px); gap: 8px; }
+    .brand { padding: 7px 10px; gap: 2px; }
+    .mark { font-size: 14px; }
+    .brand p, .guide { display: none !important; }
+    .stats { font-size: 11px; line-height: 1.35; }
+    .tools { padding: 8px; gap: 8px; }
+    .seg button { padding: 7px 5px; }
+    .sec, .sec[open] { gap: 8px; }
+    .hint { display: none; }
+    .clock {
+      left: 226px; right: 8px; bottom: 8px; transform: none; max-width: none; width: auto;
+      flex-wrap: wrap; justify-content: center; gap: 6px 10px; padding: 6px 8px;
+    }
+    .clock .season { min-width: 0; }
+    .clock .hour input { width: 90px; }
+    .clock button { padding: 7px 8px; }
+    .lil-gui.root { top: 8px; right: 8px; max-height: calc(100% - 140px); } /* acima do relógio em até três linhas */
+    .photobar { bottom: 8px; width: max-content; max-width: calc(100% - 16px); }
   }
 </style>
 </head>
@@ -338,6 +360,8 @@ import { SPECIES, SPECIES_KEYS, STYLES, SEASONS, STAGE_LABELS, seasonAt, seasonS
 import { History, snapshotLayers, makePatch, applyPatch } from './veg-history.js';
 import { SOILS, explainCell } from './veg-eco.js';
 import { capturePhoto, photoFileName, maxPhotoScale } from './veg-photo.js';
+import { landscapeOnly } from './veg-landscape.js';
+landscapeOnly();
 
 const $ = s => document.querySelector(s);
 const canvas = $('#scene');
@@ -528,7 +552,7 @@ $('#bUndo').addEventListener('click', undo);
 $('#fSave').addEventListener('click', () => { download('floresta.json', JSON.stringify(world.toJSON()), 'application/json'); busy('Projeto salvo: floresta.json'); });
 $('#fOpen').addEventListener('click', () => $('#fileProject').click());
 $('#fClear').addEventListener('click', () => maskAction('limpar o mapa', () => { world.fillAll('arvores', 0); world.fillAll('grama', 0); world.fillAll('flora', 0); markTrees(); dirty.colors = true; busy('Mapa limpo. Ctrl+Z traz de volta.'); }));
-if (innerWidth < 760) { $('#secBrush').open = false; $('#secView').open = false; } // no celular, o painel começa enxuto
+if (innerWidth < 760 || innerHeight <= 520) { $('#secBrush').open = false; $('#secView').open = false; } // no celular, o painel começa enxuto
 
 /* primeiros passos (o critério do Marco 1): pintar → tempo → ver → foto; lembrado só neste navegador */
 const guideDone = new Set(JSON.parse(store.get('floresta-voxel:guia') || '[]'));

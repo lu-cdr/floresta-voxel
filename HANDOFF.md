@@ -23,6 +23,7 @@ florestas inteiras e menu de debug. Detalhes técnicos completos em `README.md`.
 | `veg-eco.js` | Grade ecológica (umidade, luz, fertilidade, declive, solo), `PREFS` de espécies e flora, adequação e fator limitante. |
 | `veg-water.js` | Água por bloco (sem three): `WATER_NONE`, `carveHeights` (leito), `waterFlow` (correnteza), `buildWaterGeometry` (superfície, paredes, cachoeiras, espuma), `waterProximity` (umidade), `packWater`/`unpackWater`. |
 | `veg-relief.js` | Relevo esculpido (sem three): `sculptRelief` (subir/descer/nivelar/suavizar/original), `reliefHeights`, `packRelief`/`unpackRelief`, `RELIEF_MAX`. |
+| `veg-landscape.js` | `landscapeOnly()`: celular em pé (toque, ≤ 600 px) vê "Gire o celular"; no Android o botão entra em tela cheia e trava na horizontal. Usado pelo editor e pelo runtime. |
 | `veg-photo.js` | Modo foto: `capturePhoto` em 2×/4× com moldura e legenda. |
 | `tests/` | `npm test` (= `node --test "tests/*.test.mjs"`): determinismo do núcleo, localidade do scatter, migração v1→v2. `fixtures/projeto-v1.json` é um projeto salvo no formato antigo. |
 
@@ -156,3 +157,10 @@ P3 arbustos/juncos, P4 margens d'água, P5 Passear, P6 vitrine (itch.io + págin
 3. **TIGHT:** Tempo — `applyRelief` ≈ 24 ms + rescatter ≈ 21 ms por quadro enquanto esculpe (mesma ordem da água); grama/flora só na área tocada. Integridade — desfazer/refazer exatos (soma do relevo 2266 → 0 → 2266), reload mantém, runtime abre o projeto. Game feel — nota por modo, rótulo no histórico ("subir terreno"…). Harmonia — degraus inteiros: o morro fica em terraços voxel, coerente com o resto. Testes — `npm test` 68 (7 novos em `tests/relief.test.mjs`).
 4. **Verificação:** navegador 1280×860: dois traços de subir (máx. 8 degraus), Ctrl+Z ×2 / Ctrl+Shift+Z ×2, borracha abre o morro e mostra os terraços, reload; 375 px sem rolagem horizontal; `exemplo-jogo.html` sem erros; console limpo.
 5. **Riscos/continuação:** água pintada guarda nível absoluto — erguer o chão em volta de um lago deixa a água num poço; baixar o chão sob ela deixa a água "flutuando" como queda. Trocar semente/campo do relevo mantém o esculpido somado ao ruído novo. Suavizar por muitas passadas perde volume (arredondamento). Próximo: P2, rochas.
+
+### Celular só na horizontal (2026-10-27)
+
+1. **Entrega:** no celular em pé, editor e runtime mostram "Gire o celular" (com botão de tela cheia + trava horizontal onde o navegador deixa — Android; no iPhone só o aviso). Deitado, o editor usa o mesmo layout do computador, compacto: cabeçalho só com nome e números, coluna de ferramentas que rola, Pincel/Ver começam dobrados, relógio à direita da coluna em 2–3 linhas, menu Avançado termina acima dele, barra do modo foto na largura toda.
+2. **Arquivos:** `veg-landscape.js` novo; `floresta.html` (media query `max-height: 520px and min-width: 600px`; a de `max-width: 760px` agora exige `min-height: 521px`, então só vale para janelas estreitas e altas); `exemplo-jogo.html` chama `landscapeOnly()`. Tablets e computador não mudam.
+3. **Verificação:** 812×375 e 667×375 sem sobreposição (painel, relógio, Avançado, modo foto); 375×812 com toque mostra o aviso nas duas páginas; 1280×860 igual a antes; console limpo.
+4. **Riscos:** iPhone não tem trava de orientação nem tela cheia de página — depende do usuário girar. Em 667 px o relógio ocupa ~115 px de altura.
