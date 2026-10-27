@@ -138,6 +138,9 @@ export const STYLES = {
       samambaia: { leaves: ['#8a4a1c', '#a8741f', '#7a5a1e', '#b8832a'] },
       flor: { stem: '#5a5a24', petals: ['#c4473a', '#e0a040', '#d8782a', '#b5352f'] },
       musgo: { leaves: ['#4f5e24', '#5e6a26', '#44521f'] },
+      moita: { stem: '#4a3424', leaves: ['#8a5a1f', '#9a6a24', '#7a4a1c', '#a8741f'] },
+      frutos: { stem: '#4a3424', leaves: ['#7a5a22', '#8a6a28', '#6a4a1c'], fruit: ['#b5352f', '#7a2a5a'] },
+      junco: { leaves: ['#a08a3a', '#8a7a30', '#b09a48'], tip: '#5a3a20' },
     },
     rock: { stone: ['#8a8274', '#7a7266', '#9a9282', '#6e665a'], moss: ['#6a6a2a', '#5e5e24', '#7a7430'] },
     species: {
@@ -157,6 +160,9 @@ export const STYLES = {
       samambaia: { leaves: ['#3f8a30', '#4f9a3c', '#357a2e', '#5aa844'] },
       flor: { stem: '#3f7a2c', petals: ['#f0f0e8', '#e8c040', '#c4527d', '#8a6ad0', '#e86a4a', '#6aa0e0'] },
       musgo: { leaves: ['#4a8a34', '#3f7a2c', '#5a9a3c'] },
+      moita: { stem: '#4a3424', leaves: ['#4f8a34', '#41772d', '#5f9a3c', '#6aa848'] },
+      frutos: { stem: '#4a3424', leaves: ['#3f7a2c', '#4f8a34', '#357a2e'], fruit: ['#f0f0e8', '#f4c8d8'] },
+      junco: { leaves: ['#5a9a3c', '#4a8a30', '#6aa848'], tip: '#6a8a3a' },
     },
     rock: { stone: ['#8e8a7e', '#7e7a70', '#a09a8c', '#706c62'], moss: ['#4f8a34', '#5f9a3c', '#41772d'] },
     species: {
@@ -176,6 +182,9 @@ export const STYLES = {
       samambaia: { leaves: ['#2a6a26', '#357a2e', '#1f5a22', '#3f8a32'] },
       flor: { stem: '#2f6a26', petals: ['#d84a4a', '#f0d040', '#f0f0e8'] },
       musgo: { leaves: ['#2f6a2a', '#256024', '#3a7430'] },
+      moita: { stem: '#3e2c1e', leaves: ['#2f6a26', '#356d2a', '#255c24', '#3c7f32'] },
+      frutos: { stem: '#3e2c1e', leaves: ['#2a5e24', '#356d2a', '#244f20'], fruit: ['#c4304a', '#3a2a6a'] },
+      junco: { leaves: ['#3f7a2c', '#4a8a34', '#356d2a'], tip: '#5a3a20' },
     },
     rock: { stone: ['#86847a', '#76746a', '#96948a', '#6a685e'], moss: ['#356d2a', '#2f6a26', '#41772d'] },
     species: {
@@ -195,6 +204,9 @@ export const STYLES = {
       samambaia: { leaves: ['#3a5a44', '#44624a', '#32503c'] },
       flor: { stem: '#5a6a52', petals: ['#d8dce4', '#b8bcd0'] },
       musgo: { leaves: ['#4a6a4c', '#3f5e44', '#56745a'] },
+      moita: { stem: '#3e2c1e', leaves: ['#5a6a52', '#4a5a44', '#6a6a5a'] },
+      frutos: { stem: '#3e2c1e', leaves: ['#4a5a44', '#5a5a4c', '#3f5e44'], fruit: ['#b03030'] },
+      junco: { leaves: ['#a89a78', '#988a68', '#b8aa88'], tip: '#4a3a2a' },
     },
     rock: { stone: ['#8c8a88', '#7c7a78', '#9c9a98', '#6c6a68'], moss: ['#4a6a4c', '#3f5e44', '#56745a'] },
     species: {
@@ -303,7 +315,8 @@ export function defaultProject() {
     grass: { density: 16, heightMin: .22, heightMax: .75, noiseInfluence: .7, lean: .5, width: .07, style: 'voxel', underTrees: true },
     wind: { strength: .45, freq: 1.2, dir: 35, gust: .6 },
     // sub-bosque: candidatos por m², quanto da máscara de árvores vira intenção de flora, mistura
-    flora: { density: 1.2, variants: 3, underTrees: .7, mix: { samambaia: 1, flor: 1, musgo: .8 } },
+    // margin: intenção automática na beira d'água (onde o junco gosta)
+    flora: { density: 1.2, variants: 3, underTrees: .7, margin: .8, mix: { samambaia: 1, flor: 1, musgo: .8, moita: .6, frutos: .35, junco: 3 } },
     // rochas: chance por candidato, variantes por tipo, quanto nascem sozinhas em solo de rocha/encosta, mistura
     rocks: { density: .55, variants: 3, auto: .6, mix: { seixo: 1, pedra: .8, matacao: .4, afloramento: .25 } },
     // tick = dias desde o início; começa no 1º dia do outono, combinando com o estilo padrão.
@@ -692,15 +705,20 @@ export function scatterGrass(cfg) {
 /* ---------- sub-bosque (GDD §5.2) ----------
    Plantas minúsculas em voxels de meia escala (o chamador usa meshVoxels(planta, style.voxel * .5)).
    Tipos: 1 caule, 2 folha (o shader balança e colore), 3 acento (pétalas). */
-export const FLORA = { samambaia: { label: 'Samambaia' }, flor: { label: 'Flores' }, musgo: { label: 'Musgo' } };
+// moita/frutos: arbustos baixos (não confundir com a espécie de árvore 'arbusto'); junco: só na margem d'água
+export const FLORA = {
+  samambaia: { label: 'Samambaia' }, flor: { label: 'Flores' }, musgo: { label: 'Musgo' },
+  // rare: chance extra de nascer — arbustos servem em quase todo lugar e cobririam o chão
+  moita: { label: 'Arbusto', rare: .3 }, frutos: { label: 'Arbusto com frutos', rare: .3 }, junco: { label: 'Junco' },
+};
 export const FLORA_KEYS = Object.keys(FLORA);
-// flor só no calor: multiplicador por estação (primavera, verão, outono, inverno)
-const FLORA_SEASON = { flor: [1.3, 1, .4, 0] };
+// multiplicador por estação (primavera, verão, outono, inverno): flor só no calor, frutos e junco somem no frio
+const FLORA_SEASON = { flor: [1.3, 1, .4, 0], frutos: [.7, 1, 1, .5], junco: [1, 1, 1, .6] };
 
 export function genFloraVoxels(kind, shapeT, seed, style) {
   const R = rng(seed), P = perlin(seed % 1000), g = voxelGrid();
   const t = clamp01(shapeT + (R() - .5) * .2);
-  const pal = style.flora[kind];
+  const pal = style.flora[kind] || STYLES['Outono ICQR'].flora[kind]; // paleta salva antes deste tipo existir
   const leafCols = (pal.leaves || pal.petals).map(hexToRgb);
   const leaf = (x, y, z, type = 2) => {
     const n = P.noise3(x * .5 + 40, y * .5, z * .5);
@@ -739,6 +757,33 @@ export function genFloraVoxels(kind, shapeT, seed, style) {
     }
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (R() < .5) leaf(dx, 0, dz);
     leaf(0, 1, R() < .5 ? 1 : -1);
+  } else if (kind === 'moita' || kind === 'frutos') {
+    // arbusto: galhos curtos e uma copa em domo achatado, com buracos de ruído; frutos salpicados por fora
+    const rr = lerp(kind === 'frutos' ? 3 : 3.5, kind === 'frutos' ? 4.5 : 5.5, t), H = Math.round(rr * (.9 + R() * .3)), ri = Math.ceil(rr) + 1;
+    const stem = hexToRgb(pal.stem);
+    for (let y = 0; y < 2; y++) g.put(0, y, 0, 1, stem, true);
+    for (let y = 1; y <= H + 1; y++) for (let dz = -ri; dz <= ri; dz++) for (let dx = -ri; dx <= ri; dx++) {
+      const u = Math.hypot(dx, dz) / rr, w = (y - H * .45) / (H * .6);
+      if (u * u + w * w < 1 - P.noise3(dx * .45, y * .45, dz * .45) * .5 && R() > .06) leaf(dx, y, dz);
+    }
+    const fruit = (pal.fruit || []).map(hexToRgb);
+    if (fruit.length) for (const v of g.map.values()) {
+      if (v.type !== 2 || R() > .14) continue;
+      const out = !g.has(v.x + Math.sign(v.x), v.y, v.z) || !g.has(v.x, v.y + 1, v.z) || !g.has(v.x, v.y, v.z + Math.sign(v.z));
+      if (out) { v.type = 3; v.col = shiftHsl(fruit[Math.floor(R() * fruit.length)], 0, 0, (R() - .5) * .06); }
+    }
+  } else if (kind === 'junco') {
+    // touceira de hastes retas, levemente inclinadas para fora; algumas com a espiga escura na ponta
+    const n = 6 + Math.round(R() * 4 + t * 4), tip = hexToRgb(pal.tip);
+    for (let s = 0; s < n; s++) {
+      const a = R() * Math.PI * 2, r0 = R() * 1.6, H = Math.round(lerp(6, 11, t) * (.7 + R() * .4)), lean = .12 + R() * .1;
+      let x = 0, z = 0;
+      for (let y = 0; y < H; y++) {
+        x = Math.round(Math.cos(a) * (r0 + y * lean)); z = Math.round(Math.sin(a) * (r0 + y * lean));
+        leaf(x, y, z);
+      }
+      if (R() < .45) for (let y = H; y < H + 2; y++) g.put(x, y, z, 3, shiftHsl(tip, 0, 0, (R() - .5) * .05));
+    }
   } else { // musgo: almofada baixa e irregular
     const rr = lerp(2, 3.5, t), ri = Math.ceil(rr * 1.3) + 1;
     for (let dz = -ri; dz <= ri; dz++) for (let dx = -ri; dx <= ri; dx++) {
@@ -758,7 +803,7 @@ export function genFloraVoxels(kind, shapeT, seed, style) {
 export function scatterFlora(cfg) {
   const { x0, z0, x1, z1, seed, maskAt, suitAt, heightAt, blockedAt, p } = cfg;
   const season = Math.min(3, Math.max(0, cfg.season | 0));
-  const out = [], w = [0, 0, 0], step = 1 / Math.sqrt(Math.max(.01, p.density));
+  const NK = FLORA_KEYS.length, out = [], w = new Array(NK).fill(0), step = 1 / Math.sqrt(Math.max(.01, p.density));
   const mul = FLORA_KEYS.map(k => FLORA_SEASON[k]?.[season] ?? 1);
   for (let z = z0; z < z1; z += step) for (let x = x0; x < x1; x += step) {
     const ix = Math.round(x * 64), iz = Math.round(z * 64);
@@ -767,13 +812,13 @@ export function scatterFlora(cfg) {
     if (m <= 0) continue;
     if (blockedAt && blockedAt(px, pz)) continue;
     let sum = 0;
-    for (let k = 0; k < 3; k++) { w[k] = clamp01(suitAt(FLORA_KEYS[k], px, pz)) * Math.max(0, p.mix[FLORA_KEYS[k]] ?? 0) * mul[k]; sum += w[k]; }
+    for (let k = 0; k < NK; k++) { w[k] = clamp01(suitAt(FLORA_KEYS[k], px, pz)) * Math.max(0, p.mix[FLORA_KEYS[k]] ?? 0) * mul[k]; sum += w[k]; }
     if (sum <= 0) continue;
     let target = hash3(ix, iz, seed + 2) * sum, c = 0;
-    while (c < 2 && target >= w[c]) { target -= w[c]; c++; }
+    while (c < NK - 1 && target >= w[c]) { target -= w[c]; c++; }
     if (w[c] <= 0) c = w.findIndex(v => v > 0);
     const kind = FLORA_KEYS[c], suit = clamp01(suitAt(kind, px, pz) * mul[c]);
-    if (hash3(ix, iz, seed + 3) > m * suit) continue;
+    if (hash3(ix, iz, seed + 3) > m * suit * (FLORA[kind].rare ?? 1)) continue;
     const variant = Math.floor(hash3(ix, iz, seed + 4) * Math.max(1, p.variants | 0));
     out.push({
       kind, x: px, y: heightAt(px, pz), z: pz,

@@ -23,7 +23,12 @@ export const PREFS = {
   samambaia: { moist: [.5, 1], light: [0, .45], soil: { terra: .9, areia: .3, rocha: .4, humus: 1 }, slope: .7 },
   flor: { moist: [.3, .7], light: [.6, 1], soil: { terra: 1, areia: .6, rocha: .2, humus: 1 }, slope: .5 },
   musgo: { moist: [.55, 1], light: [0, .6], soil: { terra: .7, areia: .2, rocha: 1, humus: .8 }, slope: 1 },
+  moita: { moist: [.3, .75], light: [.3, 1], soil: { terra: 1, areia: .6, rocha: .35, humus: .9 }, slope: .7 },
+  frutos: { moist: [.35, .7], light: [.55, 1], soil: { terra: 1, areia: .4, rocha: .2, humus: 1 }, slope: .5 },
+  // margin: só a 1–2 blocos da água (eco.near); fora disso a adequação cai a quase zero
+  junco: { moist: [.7, 1], light: [.4, 1], soil: { terra: 1, areia: .9, rocha: .2, humus: 1 }, slope: .4, margin: true },
 };
+const marginF = near => .02 + .98 * smoothstep(.45, .75, near);
 // copa: [raio em blocos, força da sombra]
 const CROWN = { carvalho: [2.5, .75], betula: [2, .7], cerejeira: [2.8, .75], pinheiro: [1.6, .7], arbusto: [.9, .2] };
 const SOIL_MOIST = [0, -.2, -.25, .15];
@@ -92,7 +97,8 @@ export function computeEco({ size, heights, amp, soilAt, trees, season, water = 
     light[k] = clamp01(light[k]);
     fertility[k] = clamp01(SOILS[soil[k]].base + .2 * moisture[k] + .15 * (1 - light[k]));
   }
-  return { size, moisture, light, fertility, slope, soil };
+  // near: 1 colado na água, caindo até 0 a 6 blocos (veg-water waterProximity)
+  return { size, moisture, light, fertility, slope, soil, near: wet || new Float32Array(n) };
 }
 
 // 1 dentro da faixa; fora, cai suave até .1
@@ -101,7 +107,7 @@ const slopeF = (s, tol) => 1 - .9 * smoothstep(tol, tol + .4, s);
 const F = [0, 0, 0, 0];   // fatores reutilizados (moisture, light, soil, slope) — sem alocação por bloco
 function factors(species, eco, k) {
   const p = PREFS[species];
-  F[0] = band(eco.moisture[k], p.moist); F[1] = band(eco.light[k], p.light);
+  F[0] = band(eco.moisture[k], p.moist) * (p.margin ? marginF(eco.near?.[k] ?? 0) : 1); F[1] = band(eco.light[k], p.light);
   F[2] = p.soil[SOILS[eco.soil[k]].key] ?? .5; F[3] = slopeF(eco.slope[k], p.slope);
   return F[0] * F[1] * F[2] * F[3];
 }
@@ -120,7 +126,8 @@ export function explainCell(eco, k, species) {
   if (suit < .75) {
     let w = 0;
     for (let q = 1; q < 4; q++) if (F[q] < F[w]) w = q;
-    limit = w === 0 ? (eco.moisture[k] < p.moist[0] ? 'solo seco' : 'solo encharcado')
+    limit = w === 0 && p.margin && marginF(eco.near?.[k] ?? 0) < .5 ? 'longe da água'
+      : w === 0 ? (eco.moisture[k] < p.moist[0] ? 'solo seco' : 'solo encharcado')
       : w === 1 ? (eco.light[k] < p.light[0] ? 'pouca luz' : 'luz demais')
       : w === 2 ? 'solo pobre' : 'encosta íngreme';
   }

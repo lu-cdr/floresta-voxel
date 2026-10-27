@@ -762,7 +762,9 @@ export class VegWorld {
     const CH = 16, s = this.P.size, h = s / 2, n = Math.ceil(s / CH), P = this.P, F = P.flora;
     const eco = this.getEco(), season = seasonAt(P.ecology).index;
     const suitAt = (kind, x, z) => { const k = this.ecoIndex(x, z); return k < 0 ? 0 : suitability(kind, eco, k); };
-    const maskAt = (x, z) => Math.max(this.sampleMask(this.floraMask, x, z), Math.min(1, this.sampleMask(this.treeMask, x, z)) * F.underTrees);
+    // beira d'água também é intenção (junco, samambaia, musgo), sem precisar pintar
+    const nearAt = (x, z) => { const k = this.ecoIndex(x, z); return k < 0 ? 0 : smoothstep(.45, .75, eco.near[k]); };
+    const maskAt = (x, z) => Math.max(this.sampleMask(this.floraMask, x, z), Math.min(1, this.sampleMask(this.treeMask, x, z)) * F.underTrees, nearAt(x, z) * (F.margin ?? 0));
     for (let cz = 0; cz < n; cz++) for (let cx = 0; cx < n; cx++) {
       const x0 = -h + cx * CH, z0 = -h + cz * CH;
       if (bounds && (bounds.x1 < x0 || bounds.x0 > x0 + CH || bounds.z1 < z0 || bounds.z0 > z0 + CH)) continue;
@@ -795,7 +797,8 @@ export class VegWorld {
         if (v.mesh) { this.floraGroup.remove(v.mesh); v.mesh.dispose(); }
         v.cap = Math.max(64, 1 << Math.ceil(Math.log2(list.length)));
         v.mesh = new THREE.InstancedMesh(v.geo, this.treeMats.mat, v.cap);
-        v.mesh.receiveShadow = true; v.mesh.frustumCulled = false; // pequenas demais para valer a sombra
+        v.mesh.receiveShadow = true; v.mesh.frustumCulled = false;
+        if (/^f:(moita|frutos):/.test(key)) { v.mesh.castShadow = true; v.mesh.customDepthMaterial = this.treeMats.depth; } // arbustos: o resto é pequeno demais para valer a sombra
         v.tint = new THREE.InstancedBufferAttribute(new Float32Array(v.cap * 3), 3);
         v.geo.setAttribute('iTint', v.tint);
         this.floraGroup.add(v.mesh);

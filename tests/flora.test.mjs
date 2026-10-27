@@ -4,10 +4,11 @@ import { STYLES, SEASONS, FLORA, FLORA_KEYS, genFloraVoxels, scatterFlora, meshV
 import { PREFS, SOILS, suitability, explainCell } from '../veg-eco.js';
 
 const dump = pl => [...pl.grid.map.values()].map(v => [v.x, v.y, v.z, v.type, ...v.col.map(c => c.toFixed(4))].join(',')).join('|');
-const RANGE = { samambaia: [3, 6], flor: [3, 5], musgo: [1, 2] };
+const RANGE = { samambaia: [3, 6], flor: [3, 5], musgo: [1, 2], moita: [4, 8], frutos: [3, 7], junco: [6, 15] };
 
 test('flora: contrato de constantes e estilos', () => {
-  assert.deepEqual(FLORA_KEYS, ['samambaia', 'flor', 'musgo']);
+  assert.deepEqual(FLORA_KEYS, ['samambaia', 'flor', 'musgo', 'moita', 'frutos', 'junco']);
+  for (const s of Object.values(STYLES)) assert.ok(s.flora.moita.leaves.length && s.flora.frutos.fruit.length && s.flora.junco.tip);
   for (const k of FLORA_KEYS) assert.ok(FLORA[k].label && PREFS[k]);
   for (const [n, s] of Object.entries(STYLES)) {
     assert.ok(s.flora.samambaia.leaves.length && s.flora.musgo.leaves.length, n);
@@ -100,4 +101,29 @@ test('eco: suitability e explainCell funcionam com as chaves de flora', () => {
   assert.equal(explainCell(sombra, 0, 'flor').limit, 'pouca luz');
   assert.equal(SOILS.length, 4);
   assert.equal(SEASONS.length, 4);
+});
+
+test('arbustos e junco: frutos por fora, junco de hastes, estilo antigo sem a paleta nova', () => {
+  const st = STYLES['Verão denso'];
+  for (let seed = 1; seed <= 10; seed++) {
+    const f = [...genFloraVoxels('frutos', .5, seed, st).grid.map.values()];
+    assert.ok(f.some(v => v.type === 3) && f.some(v => v.type === 2) && f.some(v => v.type === 1));
+    const j = genFloraVoxels('junco', .5, seed, st), xs = [...j.grid.map.values()].map(v => v.x);
+    assert.ok(j.height > Math.max(...xs) - Math.min(...xs), 'junco é mais alto que largo');
+  }
+  const old = { ...st, flora: { samambaia: st.flora.samambaia, flor: st.flora.flor, musgo: st.flora.musgo } };
+  assert.ok(genFloraVoxels('moita', .5, 1, old).grid.map.size > 0);
+});
+
+test('junco só na margem: longe da água a adequação despenca e explica o motivo', () => {
+  const n = 4, mk = near => ({ size: n, moisture: new Float32Array(n * n).fill(.85), light: new Float32Array(n * n).fill(.8), fertility: new Float32Array(n * n).fill(.5), slope: new Float32Array(n * n), soil: new Uint8Array(n * n), near: new Float32Array(n * n).fill(near) });
+  assert.ok(suitability('junco', mk(.83), 0) > .8);
+  assert.ok(suitability('junco', mk(0), 0) < .05);
+  assert.equal(explainCell(mk(0), 0, 'junco').limit, 'longe da água');
+  assert.ok(suitability('moita', mk(0), 0) > .5, 'arbusto não depende de água');
+});
+
+test('scatterFlora: com o mix padrão, os seis tipos aparecem onde servem', () => {
+  const all = scatterFlora(base({ suitAt: () => .9, p: { density: 3, variants: 2, mix: { samambaia: 1, flor: 1, musgo: 1, moita: 1, frutos: 1, junco: 1 } }, x1: 32, z1: 32 }));
+  assert.deepEqual([...kinds(all)].sort(), [...FLORA_KEYS].sort());
 });

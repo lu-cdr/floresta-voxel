@@ -272,7 +272,7 @@
   <div class="row" data-for="solo"><label for="bSoil">Tipo de solo</label>
     <select id="bSoil"></select>
   </div>
-  <p class="note" data-for="flora">Cada planta só aparece onde gosta: samambaia e musgo na sombra úmida, flores no sol. Veja em "Bom para…".</p>
+  <p class="note" data-for="flora">Cada planta só aparece onde gosta: samambaia e musgo na sombra úmida, flores e arbustos com frutos no sol, arbustos quase em todo lugar e junco só na beira d'água (lá ele nasce sozinho). Veja em "Bom para…".</p>
   <div class="row" data-for="arvores"><label for="bSpecies">Espécie</label>
     <select id="bSpecies"><option value="-1">Automática (ruído)</option></select>
   </div>
@@ -362,6 +362,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import GUI from 'lil-gui';
 import { ROCKS, ROCK_KEYS } from './veg-core.js';
 import { VegWorld, defaultProject, migrateProject, treeGeometry, bakedTreeMesh } from './veg-render.js';
+import { FLORA } from './veg-core.js';
 import { SPECIES, SPECIES_KEYS, STYLES, SEASONS, STAGE_LABELS, seasonAt, seasonStyle, lightAt, genTreeVoxels, meshVoxels, variantSeed } from './veg-core.js';
 import { History, snapshotLayers, makePatch, applyPatch } from './veg-history.js';
 import { SOILS, explainCell } from './veg-eco.js';
@@ -810,8 +811,9 @@ function buildGuiFolders() {
   const floraDirty = () => dirty.flora = true;
   ffl.add(P.flora, 'density', .1, 4, .05).name('candidatos por m²').onChange(floraDirty);
   ffl.add(P.flora, 'underTrees', 0, 1, .01).name('sob as árvores').onChange(floraDirty);
+  ffl.add(P.flora, 'margin', 0, 1, .01).name("beira d'água").onChange(floraDirty);
   ffl.add(P.flora, 'variants', 1, 6, 1).name('variantes').onChange(() => { world.invalidateFlora(); floraDirty(); });
-  for (const k of Object.keys(P.flora.mix)) ffl.add(P.flora.mix, k, 0, 2, .05).name(k).onChange(floraDirty);
+  for (const k of Object.keys(P.flora.mix)) ffl.add(P.flora.mix, k, 0, 2, .05).name(FLORA[k]?.label.toLowerCase() ?? k).onChange(floraDirty);
   ffl.close();
 
   const frk = gui.addFolder('Rochas');
@@ -988,6 +990,7 @@ const VIEWS = [
   { key: 'eco:fertilidade', label: 'Fertilidade', lo: 'pobre', hi: 'fértil' },
   { key: 'eco:declive', label: 'Declive', lo: 'plano', hi: 'íngreme' },
   ...SPECIES_KEYS.map(k => ({ key: 'eco:adequacao:' + k, label: 'Bom para ' + SPECIES[k].label.toLowerCase(), lo: 'ruim', hi: 'ideal', species: k })),
+  ...['moita', 'frutos', 'junco'].map(k => ({ key: 'eco:adequacao:' + k, label: 'Bom para ' + FLORA[k].label.toLowerCase(), lo: 'ruim', hi: 'ideal', species: k })),
 ];
 let viewLayer = VIEWS[0];
 VIEWS.forEach(v => $('#bView').add(new Option(v.label, v.key)));
@@ -1009,7 +1012,7 @@ function probeAt(e) {
   if (k == null || k < 0) return;
   const sp = viewLayer.species, c = explainCell(world.getEco(), k, sp || 'carvalho');
   const base = `Umidade <b>${pct(c.moisture)}</b> · luz <b>${pct(c.light)}</b> · fertilidade <b>${pct(c.fertility)}</b> · ${c.soil.toLowerCase()}`;
-  $('#probe').innerHTML = sp ? `${SPECIES[sp].label}: <b>${pct(c.suit)}</b>${c.limit ? ' — ' + c.limit : ' — ótimo aqui'}<br>${base}` : base;
+  $('#probe').innerHTML = sp ? `${(SPECIES[sp] || FLORA[sp]).label}: <b>${pct(c.suit)}</b>${c.limit ? ' — ' + c.limit : ' — ótimo aqui'}<br>${base}` : base;
 }
 
 /* ---------- relógio e estações ----------
