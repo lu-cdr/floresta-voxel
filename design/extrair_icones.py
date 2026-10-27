@@ -33,6 +33,8 @@ FOLHAS = {
                                 'criativo', 'ecossistema', 'pincel', 'fechar', 'check',
                                 'seixo', 'pedra', 'matacao', 'afloramento', 'junco'],
 }
+# folhas apertadas em que raios do vizinho invadem a célula
+CORTA_BORDA = {'folha-tempo-extras.webp'}
 # linhas × colunas de cada folha (os ícones ficam em células iguais)
 GRADE = {'folha-ferramentas.webp': (2, 5), 'folha-acoes.webp': (2, 5), 'folha-ver-no-terreno.webp': (2, 4),
          'folha-pincel.webp': (4, 6), 'folha-foto-passeio-contadores.webp': (3, 6), 'folha-tempo-extras.webp': (4, 5)}
@@ -45,7 +47,7 @@ def fundo(im):
     return np.median(c, 0)
 
 
-def recortes_grade(im, bg, nl, nc):
+def recortes_grade(im, bg, nl, nc, corta_borda=False):
     """caixa justa do desenho dentro de cada célula da grade (ignora sujeira pequena)."""
     mask = np.abs(im.astype(int) - bg).sum(2) > 60
     mask = ndimage.binary_opening(mask, iterations=1)
@@ -58,7 +60,11 @@ def recortes_grade(im, bg, nl, nc):
             lab, k = ndimage.label(sub)
             if k:
                 tam = ndimage.sum(sub, lab, range(1, k + 1))
-                sub = np.isin(lab, 1 + np.nonzero(tam >= 30)[0])
+                # fora: sujeira pequena e pedaços que encostam na borda da célula (vizinho invadindo)
+                borda = set(np.unique(np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]]))) - {0}
+                maior = int(np.argmax(tam)) + 1  # o desenho principal fica mesmo se encostar
+                ok = [i + 1 for i in range(k) if i + 1 == maior or (tam[i] >= 30 and not (corta_borda and (i + 1) in borda))]
+                sub = np.isin(lab, ok)
             ys, xs = np.nonzero(sub)
             caixas.append((y0 + ys.min(), y0 + ys.max() + 1, x0 + xs.min(), x0 + xs.max() + 1))
     return caixas
@@ -146,7 +152,7 @@ def main():
             relato.append(f'(sem {arq} ainda)'); continue
         img = np.array(Image.open(os.path.join(AQUI, 'chatgpt', arq)).convert('RGB'))
         bg = fundo(img)
-        for nome, caixa in zip(nomes, recortes_grade(img, bg, *GRADE[arq])):
+        for nome, caixa in zip(nomes, recortes_grade(img, bg, *GRADE[arq], corta_borda=arq in CORTA_BORDA)):
             grade, cores, u = converte(img, caixa, bg)
             letras = 'abcdefghij'
             pal, linhas = {}, []

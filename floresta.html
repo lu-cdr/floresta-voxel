@@ -217,6 +217,128 @@
   }
   .lil-gui .title { font-weight: 600; }
 
+  /* ---------- ícones pixel (veg-icons.js, das folhas do ChatGPT) ----------
+     Botões viram ícone + atalho no canto; o nome aparece no balão (#uitip). Ativo: fundo terracota
+     e o ícone vira silhueta clara, para não sumir o detalhe terracota do desenho. */
+  :root { --icon-ink: #2a2420; --tip-bg: #2a2420; --tip-ink: #fbf8f2; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --icon-ink: #efe6d6; --tip-bg: #efe6d6; --tip-ink: #1b1916; } }
+  :root[data-theme="dark"] { --icon-ink: #efe6d6; --tip-bg: #efe6d6; --tip-ink: #1b1916; }
+  svg.px { width: 22px; height: 22px; display: block; flex: none; }
+  .vh { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  [aria-pressed="true"] > svg.px path, [aria-checked="true"] > svg.px path, .tog:has(input:checked) > svg.px path { fill: var(--on-accent); }
+  .uitip {
+    position: fixed; z-index: 20; pointer-events: none; max-width: 240px; padding: 6px 9px; border-radius: 8px;
+    background: var(--tip-bg); color: var(--tip-ink); font: 500 12px/1.3 var(--f-body); box-shadow: var(--shadow);
+  }
+  .uitip[hidden] { display: none; }
+  /* cabeçalho: contadores com ícone, primeiros passos em 4 quadrinhos */
+  .brand p { display: none; }
+  .stats { display: flex; flex-wrap: wrap; gap: 4px 8px; pointer-events: auto; font: 600 12px/1 var(--f-body); color: var(--ink); }
+  .stats span { display: inline-flex; align-items: center; gap: 4px; }
+  .stats svg.px { width: 18px; height: 18px; }
+  .guide { grid-template-columns: 1fr auto; align-items: start; }
+  .guide ol { list-style: none; padding: 0; display: flex; gap: 6px; }
+  .guide li { position: relative; width: 38px; height: 38px; display: grid; place-items: center; background: var(--chip); border: 1px solid var(--line); border-radius: 9px; }
+  .guide li svg.px { width: 24px; height: 24px; }
+  .guide li .n { position: absolute; left: 3px; top: 2px; font: 500 9px/1 var(--f-pixel); color: var(--muted); }
+  .guide li .ok { display: none; position: absolute; right: -5px; bottom: -5px; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); place-items: center; }
+  .guide li .ok svg.px { width: 12px; height: 12px; }
+  .guide li .ok svg.px path { fill: var(--on-accent); }
+  .guide li.done { color: inherit; text-decoration: none; opacity: .75; }
+  .guide li.done .ok { display: grid; }
+  .guide button.ib { padding: 6px; background: none; border: 0; cursor: pointer; text-decoration: none; }
+  .guide button.ib svg.px { width: 14px; height: 14px; }
+  /* ferramentas em grade 3×3, quadradas */
+  #toolSeg { grid-template-columns: repeat(3, 1fr); }
+  #toolSeg button { position: relative; height: 54px; padding: 0; }
+  #toolSeg button svg.px { width: 30px; height: 30px; }
+  .seg button kbd, .clock button kbd { position: absolute; right: 4px; bottom: 3px; font: 500 9px/1 var(--f-pixel); color: var(--muted); }
+  .seg button[aria-pressed="true"] kbd { color: var(--on-accent); }
+  #histSeg button { padding: 6px; }
+  #histSeg svg.px, .seg.three svg.px { width: 20px; height: 20px; }
+  .seg.three { grid-template-columns: repeat(3, 1fr); }
+  .seg.three button { padding: 8px; }
+  /* títulos de seção com ícone; "?" mostra as notas da ferramenta */
+  .sec > summary { justify-content: flex-start; gap: 8px; }
+  .sec > summary .ttl { display: flex; align-items: center; gap: 8px; }
+  .sec > summary .ttl svg.px { width: 18px; height: 18px; }
+  .sec > summary .help { margin-left: auto; padding: 2px; background: none; border: 0; border-radius: 6px; cursor: pointer; }
+  .sec > summary .help svg.px { width: 18px; height: 18px; }
+  .sec > summary .help[aria-pressed="true"] { background: var(--accent); }
+  .sec > summary .help + * , .sec > summary::after { margin-left: 0; }
+  .sec > summary:not(:has(.help))::after { margin-left: auto; }
+  .tools .note { display: none; }
+  body.notes .tools .note:not([hidden]) { display: block; }
+  /* sliders: ícone · trilho · valor */
+  .row.sl { grid-template-columns: 22px 1fr 40px; align-items: center; gap: 8px; }
+  .row.sl output { text-align: right; font: 600 12px/1 var(--f-body); }
+  .row.sl svg.px { width: 20px; height: 20px; }
+  /* escolhas por ícone no lugar de <select> */
+  .ichoices { display: flex; gap: 3px; }
+  .ichoices button {
+    flex: 1 1 0; min-width: 0; height: 34px; padding: 0; display: grid; place-items: center; background: var(--chip);
+    border: 1px solid transparent; border-radius: 8px; cursor: pointer; color: var(--ink); font: 600 12px/1 var(--f-body);
+  }
+  .ichoices button:hover:not(:disabled) { border-color: var(--line); }
+  .ichoices button[aria-checked="true"] { background: var(--accent); color: var(--on-accent); }
+  .ichoices button:disabled { opacity: .4; cursor: default; }
+  .ichoices.bomrow { padding-top: 4px; border-top: 1px dashed var(--line); }
+  .ichoices.bomrow[hidden] { display: none; }
+  /* leitura do ponto: ícones com valor */
+  .legend .probe { display: grid; gap: 4px; min-height: 0; }
+  .probe .pline { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+  .probe .pv { display: inline-flex; align-items: center; gap: 3px; }
+  .probe svg.px { width: 18px; height: 18px; }
+  .probe .lim { color: var(--muted); font-size: 12px; }
+  /* barra de tempo */
+  .clock { gap: 10px; }
+  .clock .season { min-width: 0; gap: 6px; font: 600 12px/1 var(--f-body); color: var(--ink); white-space: nowrap; }
+  .clock .season svg.px { width: 26px; height: 26px; }
+  .clock .hour svg.px { width: 18px; height: 18px; }
+  .clock button, .clock .tog { position: relative; padding: 6px; display: grid; place-items: center; }
+  .clock .steps button svg.px, .clock > button svg.px, .clock .tog svg.px { width: 24px; height: 24px; }
+  .clock .tog { background: var(--chip); border: 1px solid transparent; border-radius: 9px; cursor: pointer; }
+  .clock .tog:hover { border-color: var(--line); }
+  .clock .tog:has(input:checked), .photobar .tog:has(input:checked) { background: var(--accent); }
+  .clock .tog:has(input:focus-visible), .photobar .tog:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .clock .mode button { padding: 5px 8px; }
+  .clock .mode svg.px { width: 22px; height: 22px; }
+  /* barra do modo foto */
+  .photobar { gap: 8px 10px; width: max-content; }
+  .photobar .hour svg.px { width: 18px; height: 18px; }
+  .photobar button, .photobar .tog { display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; }
+  .photobar .tog { background: var(--chip); border-radius: 9px; cursor: pointer; }
+  .photobar svg.px { width: 22px; height: 22px; }
+  .photobar button.primary svg.px path { fill: var(--on-accent); }
+  .photobar .ichoices button { flex: none; width: auto; min-width: 34px; padding: 0 6px; }
+  /* passeio: teclas em ícone, sair no canto, joystick no toque */
+  .walkbar { padding: 8px 10px; gap: 10px; transition: opacity .6s ease; }
+  .walkbar.calm { opacity: .35; }
+  .walkbar.calm:hover { opacity: 1; }
+  .walkbar .kk { display: inline-flex; align-items: center; gap: 3px; }
+  .walkbar .kk svg.px { width: 20px; height: 20px; }
+  .walkbar kbd {
+    display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 4px; border-radius: 5px;
+    background: var(--chip); border: 1px solid var(--line); box-shadow: 0 2px 0 var(--line); font: 500 10px/1 var(--f-pixel); color: var(--ink);
+  }
+  .walkbar .wasd { display: inline-grid; grid-template-columns: repeat(3, 22px); grid-template-rows: 22px 22px; gap: 2px; }
+  .walkbar .wasd kbd:nth-child(1) { grid-column: 2; grid-row: 1; }
+  .walkbar .wasd kbd:nth-child(2) { grid-column: 1; grid-row: 2; }
+  .walkbar .wasd kbd:nth-child(3) { grid-column: 2; grid-row: 2; }
+  .walkbar .wasd kbd:nth-child(4) { grid-column: 3; grid-row: 2; }
+  .walkexit { display: none; }
+  body.walk:not(.photo) .walkexit {
+    display: grid; place-items: center; position: fixed; z-index: 7; top: 14px; right: 14px; width: 44px; height: 44px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); cursor: pointer;
+  }
+  .walkexit svg.px { width: 26px; height: 26px; }
+  .walkjump svg.px { width: 30px; height: 30px; margin: auto; }
+  .joy { display: none; position: fixed; z-index: 6; width: 110px; height: 110px; margin: -55px 0 0 -55px; border-radius: 50%; pointer-events: none;
+    background: rgba(251, 248, 242, .25); border: 2px solid rgba(251, 248, 242, .7); }
+  .joy.on { display: block; }
+  .joy .knob { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%; background: var(--panel); box-shadow: var(--shadow); }
+  @media (pointer: coarse) { .walkbar { display: none !important; } }
+
   @media (max-width: 760px) and (min-height: 521px) {
     .left { width: auto; right: 16px; max-height: none; overflow: visible; pointer-events: none; }
     .left .brand { align-self: flex-start; }
@@ -249,6 +371,8 @@
     .stats { font-size: 11px; line-height: 1.35; }
     .tools { padding: 8px; gap: 8px; }
     .seg button { padding: 7px 5px; }
+    #toolSeg button { height: 40px; }
+    #toolSeg button svg.px { width: 24px; height: 24px; }
     .sec, .sec[open] { gap: 8px; }
     .hint { display: none; }
     .clock {
@@ -269,64 +393,52 @@
 <div class="left">
 <div class="brand">
   <div class="mark">FLORESTA VOXEL</div>
-  <p>Pinte uma floresta, avance as estações e veja o lugar decidir o que cresce.</p>
   <div class="stats" id="stats"></div>
   <div class="guide" id="guide" hidden>
     <ol>
-      <li data-step="pintar">Pinte ou apague árvores</li>
-      <li data-step="tempo">Avance uma estação</li>
-      <li data-step="ver">Veja umidade ou luz no terreno</li>
-      <li data-step="foto">Salve uma foto <kbd>P</kbd></li>
+      <li data-step="pintar" data-tip="1 · Pinte ou apague árvores"><span class="n">1</span><i data-icon="arvores"></i><span class="ok"><i data-icon="check"></i></span></li>
+      <li data-step="tempo" data-tip="2 · Avance uma estação"><span class="n">2</span><i data-icon="proxima"></i><span class="ok"><i data-icon="check"></i></span></li>
+      <li data-step="ver" data-tip="3 · Veja umidade ou luz no terreno"><span class="n">3</span><i data-icon="umidade"></i><span class="ok"><i data-icon="check"></i></span></li>
+      <li data-step="foto" data-tip="4 · Salve uma foto (P)"><span class="n">4</span><i data-icon="foto"></i><span class="ok"><i data-icon="check"></i></span></li>
     </ol>
-    <button id="guideClose" type="button">Esconder</button>
+    <button id="guideClose" type="button" class="ib sm" aria-label="Esconder os primeiros passos" data-tip="Esconder os primeiros passos"><i data-icon="fechar"></i></button>
   </div>
 </div>
 
 <div class="tools" role="toolbar" aria-label="Ferramentas">
   <div class="seg" id="toolSeg">
-    <button data-tool="camera" aria-pressed="false">Câmera <kbd>C</kbd></button>
-    <button data-tool="arvores" aria-pressed="true">Árvores <kbd>1</kbd></button>
-    <button data-tool="grama" aria-pressed="false">Grama <kbd>2</kbd></button>
-    <button data-tool="solo" aria-pressed="false">Solo <kbd>3</kbd></button>
-    <button data-tool="flora" aria-pressed="false" title="Samambaias, flores e musgo onde o lugar serve">Flora <kbd>4</kbd></button>
-    <button data-tool="agua" aria-pressed="false" title="Rios, lagos e cachoeiras">Água <kbd>5</kbd></button>
-    <button data-tool="relevo" aria-pressed="false" title="Subir, descer, nivelar e suavizar o terreno">Relevo <kbd>6</kbd></button>
-    <button data-tool="rochas" aria-pressed="false" title="Seixos, pedras, matacões e afloramentos">Rochas <kbd>7</kbd></button>
-    <button data-tool="borracha" aria-pressed="false" class="span">Borracha <kbd>E</kbd></button>
+    <button data-tool="camera" aria-pressed="false" aria-label="Câmera" data-tip="Câmera: girar e aproximar · C"><i data-icon="camera"></i><kbd>C</kbd></button>
+    <button data-tool="arvores" aria-pressed="true" aria-label="Árvores" data-tip="Árvores · 1"><i data-icon="arvores"></i><kbd>1</kbd></button>
+    <button data-tool="grama" aria-pressed="false" aria-label="Grama" data-tip="Grama · 2"><i data-icon="grama"></i><kbd>2</kbd></button>
+    <button data-tool="solo" aria-pressed="false" aria-label="Solo" data-tip="Solo · 3"><i data-icon="solo"></i><kbd>3</kbd></button>
+    <button data-tool="flora" aria-pressed="false" aria-label="Flora" data-tip="Flora: samambaias, flores, arbustos, junco · 4"><i data-icon="flora"></i><kbd>4</kbd></button>
+    <button data-tool="agua" aria-pressed="false" aria-label="Água" data-tip="Água: rios, lagos e cachoeiras · 5"><i data-icon="agua"></i><kbd>5</kbd></button>
+    <button data-tool="relevo" aria-pressed="false" aria-label="Relevo" data-tip="Relevo: subir, descer, nivelar, suavizar · 6"><i data-icon="relevo"></i><kbd>6</kbd></button>
+    <button data-tool="rochas" aria-pressed="false" aria-label="Rochas" data-tip="Rochas · 7"><i data-icon="rochas"></i><kbd>7</kbd></button>
+    <button data-tool="borracha" aria-pressed="false" aria-label="Borracha" data-tip="Borracha · E"><i data-icon="borracha"></i><kbd>E</kbd></button>
   </div>
   <div class="seg" id="histSeg">
-    <button id="bUndo" disabled aria-keyshortcuts="Control+Z" title="Nada para desfazer">↶ Desfazer</button>
-    <button id="bRedo" disabled aria-keyshortcuts="Control+Shift+Z Control+Y" title="Nada para refazer">↷ Refazer</button>
+    <button id="bUndo" disabled aria-keyshortcuts="Control+Z" aria-label="Desfazer" data-tip="Nada para desfazer"><i data-icon="desfazer"></i></button>
+    <button id="bRedo" disabled aria-keyshortcuts="Control+Shift+Z Control+Y" aria-label="Refazer" data-tip="Nada para refazer"><i data-icon="refazer"></i></button>
   </div>
-  <details class="sec" id="secBrush" open><summary>Pincel</summary>
-  <div class="row"><label for="bRadius">Raio <output id="oRadius"></output></label><input id="bRadius" type="range" min="1" max="24" step=".5" value="7"></div>
-  <div class="row"><label for="bStrength">Força <output id="oStrength"></output></label><input id="bStrength" type="range" min=".05" max="1" step=".05" value=".6"></div>
-  <div class="row"><label for="bHard">Dureza <output id="oHard"></output></label><input id="bHard" type="range" min="0" max="1" step=".05" value=".35"></div>
-  <div class="row" data-for="solo"><label for="bSoil">Tipo de solo</label>
-    <select id="bSoil"></select>
-  </div>
+  <details class="sec" id="secBrush" open><summary><span class="ttl"><i data-icon="pincel"></i>Pincel</span><button type="button" class="help" id="bHelp" aria-pressed="false" aria-label="Explicar a ferramenta" data-tip="Explicar a ferramenta"><i data-icon="ajuda"></i></button></summary>
+  <div class="row sl" data-tip="Raio"><i data-icon="raio"></i><input id="bRadius" type="range" min="1" max="24" step=".5" value="7" aria-label="Raio"><output id="oRadius"></output></div>
+  <div class="row sl" data-tip="Força"><i data-icon="forca"></i><input id="bStrength" type="range" min=".05" max="1" step=".05" value=".6" aria-label="Força"><output id="oStrength"></output></div>
+  <div class="row sl" data-tip="Dureza da borda"><i data-icon="dureza"></i><input id="bHard" type="range" min="0" max="1" step=".05" value=".35" aria-label="Dureza"><output id="oHard"></output></div>
+  <div class="row" data-for="solo"><select id="bSoil" aria-label="Tipo de solo"></select></div>
   <p class="note" data-for="flora">Cada planta só aparece onde gosta: samambaia e musgo na sombra úmida, flores e arbustos com frutos no sol, arbustos quase em todo lugar e junco só na beira d'água (lá ele nasce sozinho). Veja em "Bom para…".</p>
-  <div class="row" data-for="arvores"><label for="bSpecies">Espécie</label>
-    <select id="bSpecies"><option value="-1">Automática (ruído)</option></select>
-  </div>
+  <div class="row" data-for="arvores"><select id="bSpecies" aria-label="Espécie"><option value="-1">Automática (ruído)</option></select></div>
   <p class="note" data-for="arvores">Passe de novo por cima de uma mata para adensá-la.</p>
-  <div class="row" data-for="agua"><label for="bWater">Forma</label>
-    <select id="bWater"><option value="rio">Rio</option><option value="lago">Lago</option><option value="cachoeira">Cachoeira</option></select>
-  </div>
+  <div class="row" data-for="agua"><select id="bWater" aria-label="Forma da água"><option value="rio">Rio</option><option value="lago">Lago</option><option value="cachoeira">Cachoeira</option></select></div>
   <p class="note" data-for="agua" id="waterNote"></p>
-  <div class="row" data-for="relevo"><label for="bRelief">Modo</label>
-    <select id="bRelief"><option value="subir">Subir</option><option value="descer">Descer</option><option value="nivelar">Nivelar</option><option value="suavizar">Suavizar</option><option value="original">Voltar ao original</option></select>
-  </div>
+  <div class="row" data-for="relevo"><select id="bRelief" aria-label="Modo do relevo"><option value="subir">Subir</option><option value="descer">Descer</option><option value="nivelar">Nivelar</option><option value="suavizar">Suavizar</option><option value="original">Voltar ao original</option></select></div>
   <p class="note" data-for="relevo" id="reliefNote"></p>
-  <div class="row" data-for="rochas"><label for="bRock">Tipo</label>
-    <select id="bRock"><option value="-1">Automático (pelo lugar)</option></select>
-  </div>
+  <div class="row" data-for="rochas"><select id="bRock" aria-label="Tipo de rocha"><option value="-1">Automático (pelo lugar)</option></select></div>
   <p class="note" data-for="rochas">Em solo de rocha e encosta íngreme elas aparecem sozinhas; matacões e afloramentos preferem esses lugares. Shift tira rochas, inclusive as automáticas.</p>
-  <div class="row" data-for="borracha"><label for="bErase">Borracha apaga</label>
-    <select id="bErase"><option value="ambos">tudo que cresce</option><option value="arvores">só árvores</option><option value="grama">só grama</option><option value="flora">só flora</option><option value="agua">só água</option><option value="relevo">só relevo</option><option value="rochas">só rochas</option></select>
-  </div>
+  <div class="row" data-for="borracha"><select id="bErase" aria-label="Borracha apaga"><option value="ambos">Tudo que cresce</option><option value="arvores">Só árvores</option><option value="grama">Só grama</option><option value="flora">Só flora</option><option value="agua">Só água</option><option value="relevo">Só relevo</option><option value="rochas">Só rochas</option></select></div>
+  <p class="note" data-for="borracha">Apaga o que estiver marcado. Shift com qualquer ferramenta também apaga.</p>
   </details>
-  <details class="sec" id="secView" open><summary>Ver no terreno</summary>
+  <details class="sec" id="secView" open><summary><span class="ttl"><i data-icon="olho"></i>Terreno</span></summary>
   <div class="row"><select id="bView" aria-label="Camada mostrada no terreno"></select></div>
   <div class="legend" id="legend" hidden>
     <div class="bar" aria-hidden="true"></div>
@@ -334,11 +446,11 @@
     <div class="probe" id="probe" aria-live="polite">Passe o mouse no terreno.</div>
   </div>
   </details>
-  <details class="sec" id="secFile"><summary>Projeto</summary>
-    <div class="seg">
-      <button id="fSave" type="button" title="Baixar o projeto como .json">Salvar</button>
-      <button id="fOpen" type="button" title="Abrir um projeto .json">Abrir…</button>
-      <button id="fClear" type="button" class="span" title="Apaga árvores, grama e flora (dá para desfazer)">Limpar o mapa</button>
+  <details class="sec" id="secFile"><summary><span class="ttl"><i data-icon="abrir"></i>Projeto</span></summary>
+    <div class="seg three">
+      <button id="fSave" type="button" aria-label="Salvar projeto" data-tip="Baixar o projeto (.json)"><i data-icon="salvar"></i></button>
+      <button id="fOpen" type="button" aria-label="Abrir projeto" data-tip="Abrir um projeto (.json)"><i data-icon="abrir"></i></button>
+      <button id="fClear" type="button" aria-label="Limpar o mapa" data-tip="Limpar o mapa (dá para desfazer)"><i data-icon="limpar"></i></button>
     </div>
   </details>
   <div class="busy" id="busy" aria-live="polite"></div>
@@ -346,44 +458,51 @@
 </div>
 
 <div class="clock" id="clock" role="group" aria-label="Tempo">
-  <div class="season">
-    <span class="swatch" id="cSwatch" aria-hidden="true"></span>
-    <div><strong id="cSeason">Outono</strong><span id="cDay">dia 1 de 12</span></div>
+  <div class="season" id="cSeasonBox" data-tip="Outono">
+    <span class="sicon" id="cSeasonIcon"></span><span class="vh" id="cSeason">Outono</span><span id="cDay">dia 1/12</span>
   </div>
-  <label class="hour"><output id="cHour">10:00</output><input id="cTime" type="range" min="0" max=".995" step=".005" aria-label="Hora do dia"></label>
+  <label class="hour" data-tip="Hora do dia"><i data-icon="sol"></i><output id="cHour">10:00</output><input id="cTime" type="range" min="0" max=".995" step=".005" aria-label="Hora do dia"><i data-icon="lua"></i></label>
   <div class="steps">
-    <button data-days="1" title="Avançar um dia">+1 dia</button>
-    <button data-days="7" title="Avançar uma semana">+1 semana</button>
-    <button data-days="season" title="Ir para o primeiro dia da próxima estação">Próxima estação</button>
+    <button data-days="1" aria-label="Avançar um dia" data-tip="+1 dia"><i data-icon="dia"></i></button>
+    <button data-days="7" aria-label="Avançar uma semana" data-tip="+1 semana"><i data-icon="semana"></i></button>
+    <button data-days="season" aria-label="Próxima estação" data-tip="Próxima estação"><i data-icon="proxima"></i></button>
   </div>
-  <label class="chk" title="As cores da floresta mudam com a estação"><input type="checkbox" id="cSeasonal"> Cores da estação</label>
-  <button id="cPhoto" title="Esconder a interface e salvar uma imagem (P)">Foto <kbd>P</kbd></button>
-  <button id="cWalk" title="Andar dentro da floresta em 1ª pessoa (V)">Passear <kbd>V</kbd></button>
+  <label class="tog" data-tip="Cores da estação: a floresta muda de cor com a estação"><input type="checkbox" id="cSeasonal" class="vh" aria-label="Cores da estação"><i data-icon="cores"></i></label>
+  <button id="cPhoto" aria-label="Foto" data-tip="Foto · P"><i data-icon="foto"></i><kbd>P</kbd></button>
+  <button id="cWalk" aria-label="Passear" data-tip="Passear em 1ª pessoa · V"><i data-icon="passear"></i><kbd>V</kbd></button>
   <div class="mode" role="radiogroup" aria-label="Modo">
-    <button data-mode="criativo" role="radio" title="Tudo adulto, o tempo só muda luz e cor">Criativo</button>
-    <button data-mode="ecossistema" role="radio" title="Árvores nascem, crescem, envelhecem e viram toco com o tempo">Ecossistema</button>
+    <button data-mode="criativo" role="radio" aria-label="Criativo" data-tip="Criativo: tudo adulto, o tempo só muda luz e cor"><i data-icon="criativo"></i></button>
+    <button data-mode="ecossistema" role="radio" aria-label="Ecossistema" data-tip="Ecossistema: árvores nascem, crescem, envelhecem e viram toco"><i data-icon="ecossistema"></i></button>
   </div>
 </div>
+<div class="uitip" id="uitip" role="tooltip" hidden></div>
 <div class="tip" id="tip" hidden></div>
 <div class="photobar" id="photobar" role="group" aria-label="Modo foto" hidden>
-  <strong>Modo foto</strong>
-  <label class="hour"><output id="pHour">10:00</output><input id="pTime" type="range" min="0" max=".995" step=".005" aria-label="Hora do dia"></label>
-  <button id="pSeason" title="Ir para a próxima estação">Próxima estação</button>
-  <label>Moldura <select id="pFrame"><option value="nenhuma">sem moldura</option><option value="passe-partout">passe-partout</option><option value="polaroide">polaroide</option></select></label>
-  <label>Tamanho <select id="pScale"><option value="2">2×</option><option value="4">4×</option></select></label>
-  <label class="chk"><input type="checkbox" id="pMeta"> Legenda</label>
-  <button id="pShot" class="primary">Salvar PNG</button>
-  <button id="pExit" title="Voltar a editar (Esc)">Sair</button>
+  <label class="hour" data-tip="Hora do dia"><i data-icon="sol"></i><output id="pHour">10:00</output><input id="pTime" type="range" min="0" max=".995" step=".005" aria-label="Hora do dia"><i data-icon="lua"></i></label>
+  <button id="pSeason" aria-label="Próxima estação" data-tip="Próxima estação"><i data-icon="proxima"></i></button>
+  <select id="pFrame" aria-label="Moldura"><option value="nenhuma">Sem moldura</option><option value="passe-partout">Passe-partout</option><option value="polaroide">Polaroide</option></select>
+  <select id="pScale" aria-label="Tamanho"><option value="2">2×</option><option value="4">4×</option></select>
+  <label class="tog" data-tip="Legenda: estação, hora e espécies na foto"><input type="checkbox" id="pMeta" class="vh" aria-label="Legenda"><i data-icon="legenda"></i></label>
+  <button id="pShot" class="primary" data-tip="Salvar a foto em PNG"><i data-icon="baixar"></i>Salvar</button>
+  <button id="pExit" aria-label="Sair do modo foto" data-tip="Voltar a editar · Esc"><i data-icon="sair"></i></button>
   <span class="pmsg" id="pMsg" aria-live="polite"></span>
 </div>
 <div class="flash" id="flash"></div>
-<div class="walkbar" id="walkbar" role="group" aria-label="Passeio" hidden>
-  <span id="walkHint"></span>
-  <button id="wExit" type="button">Voltar ao editor</button>
+<div class="walkbar" id="walkbar" role="group" aria-label="Controles do passeio" hidden>
+  <span class="kk wasd" data-tip="Andar"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>
+  <span class="kk" data-tip="Pular"><kbd class="wide">Espaço</kbd><i data-icon="pular"></i></span>
+  <span class="kk" data-tip="Correr: W duas vezes"><kbd>W</kbd><kbd>W</kbd><i data-icon="correr"></i></span>
+  <span class="kk" data-tip="Agachar"><kbd class="wide">Shift</kbd><i data-icon="agachar"></i></span>
+  <span class="kk" id="walkLook" data-tip="Olhar: mova o mouse"><i data-icon="mouse"></i></span>
+  <span class="kk" data-tip="Foto"><kbd>P</kbd><i data-icon="foto"></i></span>
+  <span class="kk" data-tip="Voltar ao editor"><kbd>ESC</kbd><i data-icon="sair"></i></span>
+  <span class="vh" id="walkHint"></span>
 </div>
+<button class="walkexit" id="wExit" type="button" aria-label="Voltar ao editor" data-tip="Voltar ao editor · Esc"><i data-icon="sair"></i></button>
+<div class="joy" id="joy" aria-hidden="true"><div class="knob"></div></div>
 <div class="crosshair" aria-hidden="true"></div>
 <button class="walkplay" id="walkPlay" type="button">Clique para jogar<small>Esc de novo volta ao editor</small></button>
-<button class="walkjump" id="wJump" type="button" aria-label="Pular">Pular</button>
+<button class="walkjump" id="wJump" type="button" aria-label="Pular"><i data-icon="pular"></i></button>
 <div class="hint" id="hint">Arraste para pintar · botão direito gira · roda dá zoom · Shift apaga · [ ] raio · Ctrl+Z desfaz</div>
 <input type="file" id="fileProject" accept=".json,application/json" hidden>
 <input type="file" id="fileStyle" accept=".json,application/json" hidden>
@@ -410,6 +529,8 @@ import { SOILS, explainCell } from './veg-eco.js';
 import { capturePhoto, photoFileName, maxPhotoScale } from './veg-photo.js';
 import { landscapeOnly } from './veg-landscape.js';
 import { FirstPerson } from './veg-walk.js';
+import { iconSVG, hydrateIcons } from './veg-icons.js';
+hydrateIcons(document);
 landscapeOnly();
 
 const $ = s => document.querySelector(s);
@@ -527,6 +648,68 @@ $('#bRelief').addEventListener('change', syncRelief); syncRelief();
 ROCK_KEYS.forEach((k, i) => $('#bRock').add(new Option(ROCKS[k].label, i)));
 $('#bRock').addEventListener('change', e => brush.rock = +e.target.value);
 
+/* ---------- interface em ícones ----------
+   Balão com o nome (data-tip) no lugar do title; <select> viram fileiras de botões-ícone
+   (o select continua escondido e é ele que guarda o valor e dispara 'change'). */
+const uitip = $('#uitip');
+let tipEl = null;
+function showTip(el) {
+  tipEl = el; uitip.textContent = el.dataset.tip; uitip.hidden = false;
+  const r = el.getBoundingClientRect(), w = uitip.offsetWidth, h = uitip.offsetHeight;
+  const x = Math.max(6, Math.min(innerWidth - w - 6, r.left + r.width / 2 - w / 2));
+  uitip.style.left = x + 'px'; uitip.style.top = (r.top - h - 8 < 6 ? r.bottom + 8 : r.top - h - 8) + 'px';
+}
+const hideTip = () => { tipEl = null; uitip.hidden = true; };
+document.addEventListener('pointerover', e => {
+  const el = e.target.closest?.('[data-tip]');
+  if (el && e.pointerType === 'mouse' && !el.disabled) showTip(el); else if (!el) hideTip();
+});
+document.addEventListener('pointerout', e => { if (tipEl && !tipEl.contains(e.relatedTarget)) hideTip(); });
+document.addEventListener('focusin', e => { const el = e.target.closest?.('[data-tip]'); if (el && e.target.matches(':focus-visible')) showTip(el); });
+document.addEventListener('focusout', hideTip);
+document.addEventListener('pointerdown', hideTip, true);
+
+function iconChoices(sel, items, cls = '') {
+  const box = document.createElement('div');
+  box.className = 'ichoices ' + cls; box.setAttribute('role', 'radiogroup'); box.setAttribute('aria-label', sel.getAttribute('aria-label') || '');
+  for (const it of items) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.dataset.value = it.value; b.dataset.tip = it.tip; b.setAttribute('role', 'radio'); b.setAttribute('aria-label', it.tip);
+    b.innerHTML = it.icon ? iconSVG(it.icon) : it.text;
+    b.addEventListener('click', () => { sel.value = it.value; sel.dispatchEvent(new Event('change')); sync(); });
+    box.append(b);
+  }
+  const sync = () => box.querySelectorAll('button').forEach(b => {
+    b.setAttribute('aria-checked', String(b.dataset.value === sel.value));
+    b.disabled = !!sel.querySelector(`option[value="${b.dataset.value}"]`)?.disabled;
+  });
+  sel.classList.add('vh'); sel.after(box); sel.addEventListener('change', sync); sync();
+  return sync;
+}
+const optTip = o => o.textContent.trim();
+iconChoices($('#bSpecies'), [...$('#bSpecies').options].map(o => ({ value: o.value, tip: optTip(o), icon: o.value === '-1' ? 'dado' : SPECIES_KEYS[+o.value] })));
+iconChoices($('#bSoil'), [...$('#bSoil').options].map(o => ({ value: o.value, tip: optTip(o), icon: SOILS[+o.value].key })));
+iconChoices($('#bWater'), [...$('#bWater').options].map(o => ({ value: o.value, tip: optTip(o), icon: o.value })));
+iconChoices($('#bRelief'), [...$('#bRelief').options].map(o => ({ value: o.value, tip: optTip(o), icon: o.value })));
+iconChoices($('#bRock'), [...$('#bRock').options].map(o => ({ value: o.value, tip: optTip(o), icon: o.value === '-1' ? 'dado' : ROCK_KEYS[+o.value] })));
+const ERASE_ICON = { ambos: 'borracha', arvores: 'arvores', grama: 'grama', flora: 'flora', agua: 'agua', relevo: 'relevo', rochas: 'rochas' };
+iconChoices($('#bErase'), [...$('#bErase').options].map(o => ({ value: o.value, tip: optTip(o), icon: ERASE_ICON[o.value] })));
+$('#bHelp').addEventListener('click', e => {
+  e.preventDefault(); e.stopPropagation(); // dentro do <summary>: não abre/fecha a seção
+  const on = document.body.classList.toggle('notes');
+  $('#bHelp').setAttribute('aria-pressed', String(on));
+  if (on) $('#secBrush').open = true;
+});
+// contadores do cabeçalho: ícone + número (montados uma vez; só o número muda)
+const STAT_ITEMS = [['statArvores', 'árvores'], ['statRochas', 'rochas'], ['statPlantas', 'plantas do sub-bosque'], ['statGrama', 'lâminas de grama'], ['fps', 'quadros por segundo']];
+$('#stats').innerHTML = STAT_ITEMS.map(([ic, tip], i) => `<span data-tip="${tip}">${iconSVG(ic)}<b id="st${i}">0</b></span>`).join('');
+const compact = n => n >= 10000 ? Math.round(n / 1000) + 'k' : n.toLocaleString('pt-BR');
+function updateStats() {
+  const v = [world.stats.arvores, world.stats.rochas, world.stats.flora, world.stats.grama];
+  v.forEach((n, i) => { $('#st' + i).textContent = compact(n); });
+  $('#st4').textContent = stats.fps;
+}
+
 // anel do pincel acompanhando o relevo
 const RING_N = 72;
 const ring = new THREE.LineLoop(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(RING_N * 3), 3)),
@@ -597,8 +780,8 @@ function redo() {
 function syncHistoryUi() {
   const u = $('#bUndo'), r = $('#bRedo');
   u.disabled = !history.canUndo; r.disabled = !history.canRedo;
-  u.title = history.canUndo ? `Desfazer ${history.undoLabel} (Ctrl+Z)` : 'Nada para desfazer';
-  r.title = history.canRedo ? `Refazer ${history.redoLabel} (Ctrl+Shift+Z)` : 'Nada para refazer';
+  u.dataset.tip = history.canUndo ? `Desfazer ${history.undoLabel} · Ctrl+Z` : 'Nada para desfazer';
+  r.dataset.tip = history.canRedo ? `Refazer ${history.redoLabel} · Ctrl+Shift+Z` : 'Nada para refazer';
 }
 $('#bUndo').addEventListener('click', undo);
 $('#fSave').addEventListener('click', () => { download('floresta.json', JSON.stringify(world.toJSON()), 'application/json'); busy('Projeto salvo: floresta.json'); });
@@ -1048,15 +1231,41 @@ function setView(key) {
   $('#probe').textContent = 'Passe o mouse no terreno.';
   if (view.overlay !== 'nenhum') { view.overlay = 'nenhum'; gui.controllersRecursive().forEach(c => c.updateDisplay()); }
   dirty.colors = true;
+  syncView();
 }
 $('#bView').addEventListener('change', e => setView(e.target.value));
+// camadas: fileira principal (paisagem, umidade, luz, fertilidade, declive, "bom para") e, no "bom para",
+// uma segunda fileira com a planta. O <select> escondido continua sendo a fonte do valor.
+const PLANT_ICON = { carvalho: 'carvalho', betula: 'betula', cerejeira: 'cerejeira', pinheiro: 'pinheiro', arbusto: 'arbusto', moita: 'arbusto', frutos: 'frutos', junco: 'junco' };
+let lastBom = 'eco:adequacao:carvalho';
+const viewBox = document.createElement('div'), bomBox = document.createElement('div');
+viewBox.className = 'ichoices'; bomBox.className = 'ichoices bomrow';
+const vbtn = (box, value, icon, tip, onClick) => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.dataset.value = value; b.dataset.tip = tip; b.setAttribute('role', 'radio'); b.setAttribute('aria-label', tip);
+  b.innerHTML = iconSVG(icon); b.addEventListener('click', onClick); box.append(b);
+};
+for (const [v, ic] of [['nenhum', 'olho'], ['eco:umidade', 'umidade'], ['eco:luz', 'luz'], ['eco:fertilidade', 'fertilidade'], ['eco:declive', 'declive']])
+  vbtn(viewBox, v, ic, VIEWS.find(x => x.key === v).label, () => setView(v));
+vbtn(viewBox, 'bom', 'bom', 'Bom para… (escolha a planta)', () => setView(lastBom));
+for (const v of VIEWS.filter(x => x.species)) vbtn(bomBox, v.key, PLANT_ICON[v.species], v.label, () => { lastBom = v.key; setView(v.key); });
+$('#bView').classList.add('vh'); $('#bView').after(viewBox, bomBox);
+function syncView() {
+  const k = viewLayer.key, bom = !!viewLayer.species;
+  if (bom) lastBom = k;
+  viewBox.querySelectorAll('button').forEach(b => b.setAttribute('aria-checked', String(bom ? b.dataset.value === 'bom' : b.dataset.value === k)));
+  bomBox.querySelectorAll('button').forEach(b => b.setAttribute('aria-checked', String(b.dataset.value === k)));
+  bomBox.hidden = !bom;
+}
+syncView();
 const pct = v => Math.round(v * 100) + '%';
 function probeAt(e) {
   const hit = pick(e), k = hit && world.ecoIndex(hit.x, hit.z);
   if (k == null || k < 0) return;
   const sp = viewLayer.species, c = explainCell(world.getEco(), k, sp || 'carvalho');
-  const base = `Umidade <b>${pct(c.moisture)}</b> · luz <b>${pct(c.light)}</b> · fertilidade <b>${pct(c.fertility)}</b> · ${c.soil.toLowerCase()}`;
-  $('#probe').innerHTML = sp ? `${(SPECIES[sp] || FLORA[sp]).label}: <b>${pct(c.suit)}</b>${c.limit ? ' — ' + c.limit : ' — ótimo aqui'}<br>${base}` : base;
+  const pv = (icon, v, tip) => `<span class="pv" title="${tip}">${iconSVG(icon)}<b>${v}</b></span>`;
+  const base = `<div class="pline">${pv('umidade', pct(c.moisture), 'umidade')}${pv('luz', pct(c.light), 'luz no chão')}${pv('fertilidade', pct(c.fertility), 'fertilidade')}<span class="lim">${c.soil.toLowerCase()}</span></div>`;
+  $('#probe').innerHTML = (sp ? `<div class="pline">${pv(PLANT_ICON[sp], pct(c.suit), (SPECIES[sp] || FLORA[sp]).label)}<span class="lim">${c.limit || 'ótimo aqui'}</span></div>` : '') + base;
 }
 
 /* ---------- relógio e estações ----------
@@ -1069,12 +1278,13 @@ const hourLabel = t => { const m = Math.round(t * 1440) % 1440; return String(Ma
 function syncClock() {
   const s = seasonAt(eco());
   $('#cSeason').textContent = s.label;
-  $('#cDay').textContent = `dia ${s.day} de ${s.seasonLen}` + (s.year ? ` · ano ${s.year + 1}` : '');
+  $('#cDay').textContent = `dia ${s.day}/${s.seasonLen}`;
   $('#cHour').textContent = hourLabel(eco().dayTime);
   $('#cTime').value = eco().dayTime;
   $('#cSeasonal').checked = !!eco().seasonal;
   document.querySelectorAll('#clock [data-mode]').forEach(b => b.setAttribute('aria-checked', String(b.dataset.mode === (eco().mode || 'criativo'))));
-  $('#cSwatch').style.background = P.style.species.carvalho?.leaves?.[0] || P.style.terrain.grass;
+  $('#cSeasonIcon').innerHTML = iconSVG(s.key);
+  $('#cSeasonBox').dataset.tip = s.label + (s.year ? ` · ano ${s.year + 1}` : '');
 }
 function applySeason() {
   if (!eco().seasonal) return;
@@ -1177,11 +1387,15 @@ function setPhoto(on) {
   if (on) {
     $('#pFrame').value = P.photo.frame; $('#pMeta').checked = P.photo.showMeta;
     $('#pScale').querySelector('[value="4"]').disabled = maxPhotoScale(renderer) < 4;
+    syncFrame(); syncScale();
     syncPhotoClock(); $('#pMsg').textContent = '';
   }
 }
 function syncPhotoClock() { $('#pHour').textContent = hourLabel(eco().dayTime); $('#pTime').value = eco().dayTime; }
 $('#cPhoto').addEventListener('click', () => setPhoto(true));
+const syncFrame = iconChoices($('#pFrame'), [['nenhuma', 'molduraSem'], ['passe-partout', 'molduraPasse'], ['polaroide', 'molduraPolaroide']]
+  .map(([value, icon]) => ({ value, icon, tip: optTip($('#pFrame').querySelector(`[value="${value}"]`)) })));
+const syncScale = iconChoices($('#pScale'), [{ value: '2', text: '2×', tip: 'Tamanho 2×' }, { value: '4', text: '4×', tip: 'Tamanho 4× (se a placa de vídeo deixar)' }]);
 $('#pExit').addEventListener('click', () => setPhoto(false));
 $('#pTime').addEventListener('input', e => { eco().dayTime = +e.target.value; syncPhotoClock(); syncClock(); applyLook(); dirty.save = performance.now(); });
 $('#pSeason').addEventListener('click', () => { advance(eco().seasonLen - (eco().tick % eco().seasonLen)); $('#pMsg').textContent = $('#busy').textContent; });
@@ -1238,6 +1452,8 @@ function setWalk(on) {
     document.activeElement?.blur?.(); // Espaço pula, não "clica" de novo no botão focado
     walker.lock(); // o clique no botão Passear já vale como gesto para travar o mouse
     syncLock();
+    $('#walkbar').classList.remove('calm'); clearTimeout(setWalk.calm);
+    setWalk.calm = setTimeout(() => $('#walkbar').classList.add('calm'), 6000); // a cola some depois de uns segundos
   } else {
     walker.stop();
     document.body.classList.remove('walk-locked', 'walk-paused');
@@ -1255,7 +1471,7 @@ const touch = () => matchMedia('(pointer: coarse)').matches;
 // a trava é engolido pelo navegador, então o próximo Esc é que volta ao editor.
 function syncLock() {
   const locked = document.pointerLockElement === canvas || walker.noLock; // sem trava possível: joga arrastando
-  if (walkOn && walker.noLock && !touch()) $('#walkHint').textContent = 'WASD anda · arraste para olhar · Espaço pula · W W corre · Shift agacha · P foto · Esc volta';
+  if (walkOn && walker.noLock && !touch()) { $('#walkHint').textContent = 'Arraste com o mouse para olhar'; $('#walkLook').dataset.tip = 'Olhar: arraste com o mouse'; }
   document.body.classList.toggle('walk-locked', walkOn && (locked || touch()));
   document.body.classList.toggle('walk-paused', walkOn && !locked && !touch() && !photoOn);
 }
@@ -1306,13 +1522,21 @@ function frame(now) {
   if (world.stats.fila) busy(`Gerando variantes… ${world.stats.fila} na fila`);
   else if ($('#busy').textContent.startsWith('Gerando variantes')) busy(''); // recolorir é rápido e visível: sem aviso
   if (walkOn) { walker.frozen = photoOn; walker.update(Math.min(.05, (now - (frame.last ?? now)) / 1000)); }
+  // joystick visível onde o dedo começou a arrastar (toque)
+  const mv = walkOn && walker.move, joy = $('#joy');
+  joy.classList.toggle('on', !!mv);
+  if (mv) {
+    const k = Math.min(1, 44 / (Math.hypot(mv.x, mv.y) * 50 || 1));
+    joy.style.left = mv.x0 + 'px'; joy.style.top = mv.y0 + 'px';
+    joy.firstElementChild.style.transform = `translate(${mv.x * 50 * k}px, ${mv.y * 50 * k}px)`;
+  }
   else controls.update(); // desligado ou não, o update reposiciona a câmera: no passeio ele não roda
   frame.last = now;
   renderer.render(scene, camera);
   frames++;
   if (now - fpsT > 500) {
     stats.fps = Math.round(frames * 1000 / (now - fpsT)); frames = 0; fpsT = now;
-    $('#stats').textContent = `${world.stats.arvores} árvores · ${world.stats.rochas} rochas · ${world.stats.flora.toLocaleString('pt-BR')} plantas · ${world.stats.grama.toLocaleString('pt-BR')} lâminas · ${stats.fps} fps`;
+    updateStats();
   }
   requestAnimationFrame(frame);
 }
