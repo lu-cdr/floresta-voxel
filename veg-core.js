@@ -139,6 +139,7 @@ export const STYLES = {
       flor: { stem: '#5a5a24', petals: ['#c4473a', '#e0a040', '#d8782a', '#b5352f'] },
       musgo: { leaves: ['#4f5e24', '#5e6a26', '#44521f'] },
     },
+    rock: { stone: ['#8a8274', '#7a7266', '#9a9282', '#6e665a'], moss: ['#6a6a2a', '#5e5e24', '#7a7430'] },
     species: {
       carvalho: { leaves: ['#c8621f', '#ad3c19', '#c97a22', '#9c4c18', '#bb6a24'], wood: '#553826' },
       betula: { leaves: ['#d1a235', '#c08a2a', '#ddb447', '#b37a22'], wood: '#e8e0d0', wood2: '#3a3128' },
@@ -157,6 +158,7 @@ export const STYLES = {
       flor: { stem: '#3f7a2c', petals: ['#f0f0e8', '#e8c040', '#c4527d', '#8a6ad0', '#e86a4a', '#6aa0e0'] },
       musgo: { leaves: ['#4a8a34', '#3f7a2c', '#5a9a3c'] },
     },
+    rock: { stone: ['#8e8a7e', '#7e7a70', '#a09a8c', '#706c62'], moss: ['#4f8a34', '#5f9a3c', '#41772d'] },
     species: {
       carvalho: { leaves: ['#468a35', '#357a2e', '#539a3c', '#2a6428', '#3c8232'], wood: '#583a26' },
       betula: { leaves: ['#7ab348', '#69a33c', '#8cc05a', '#5c9634'], wood: '#ece6da', wood2: '#3a3128' },
@@ -175,6 +177,7 @@ export const STYLES = {
       flor: { stem: '#2f6a26', petals: ['#d84a4a', '#f0d040', '#f0f0e8'] },
       musgo: { leaves: ['#2f6a2a', '#256024', '#3a7430'] },
     },
+    rock: { stone: ['#86847a', '#76746a', '#96948a', '#6a685e'], moss: ['#356d2a', '#2f6a26', '#41772d'] },
     species: {
       carvalho: { leaves: ['#2f6f2a', '#3c7f32', '#255c24', '#468a35'], wood: '#4f3422' },
       betula: { leaves: ['#4f9a3c', '#3f8a30', '#5ca848'], wood: '#e6e0d2', wood2: '#33291f' },
@@ -193,6 +196,7 @@ export const STYLES = {
       flor: { stem: '#5a6a52', petals: ['#d8dce4', '#b8bcd0'] },
       musgo: { leaves: ['#4a6a4c', '#3f5e44', '#56745a'] },
     },
+    rock: { stone: ['#8c8a88', '#7c7a78', '#9c9a98', '#6c6a68'], moss: ['#4a6a4c', '#3f5e44', '#56745a'] },
     species: {
       carvalho: { leaves: ['#6a5442', '#5a4636', '#7a624e'], wood: '#4a3a2e' },
       betula: { leaves: ['#8a7a5a', '#7a6a4c'], wood: '#ece8e0', wood2: '#33291f' },
@@ -300,6 +304,8 @@ export function defaultProject() {
     wind: { strength: .45, freq: 1.2, dir: 35, gust: .6 },
     // sub-bosque: candidatos por m², quanto da máscara de árvores vira intenção de flora, mistura
     flora: { density: 1.2, variants: 3, underTrees: .7, mix: { samambaia: 1, flor: 1, musgo: .8 } },
+    // rochas: chance por candidato, variantes por tipo, quanto nascem sozinhas em solo de rocha/encosta, mistura
+    rocks: { density: .55, variants: 3, auto: .6, mix: { seixo: 1, pedra: .8, matacao: .4, afloramento: .25 } },
     // tick = dias desde o início; começa no 1º dia do outono, combinando com o estilo padrão.
     // seasonal: o estilo segue a estação (seasonStyle) em vez de ficar fixo.
     // epoch: dia em que o modo Ecossistema começou (idade das árvores sem registro em plants)
@@ -774,6 +780,118 @@ export function scatterFlora(cfg) {
       rot: hash3(ix, iz, seed + 5) * Math.PI * 2, scale: lerp(.7, 1.3, hash3(ix, iz, seed + 6)),
       variant, key: 'f:' + kind + ':' + variant,
     });
+  }
+  return out;
+}
+
+/* ---------- rochas ----------
+   Blocos de pedra em voxel do mundo: elipsoide com ruído (pedra, matacão), camadas que encolhem
+   para cima (afloramento) ou um punhado de seixos. Um pouco enterradas para assentar no degrau.
+   Tipos de voxel: 1 pedra (sem vento), 2 musgo (recebe o tint como folha), 3 neve. */
+export const ROCKS = {
+  seixo: { label: 'Seixos', r: [2.5, 3.5], big: false }, // r: raio da pegada em voxels (min, max)
+  pedra: { label: 'Pedras', r: [2.5, 4], big: false },
+  matacao: { label: 'Matacões', r: [5, 8], big: true },
+  afloramento: { label: 'Afloramento', r: [7, 11], big: true },
+};
+export const ROCK_KEYS = Object.keys(ROCKS);
+// voxels enterrados: a grade não guarda y < 0, então a rocha é gerada ROCK_SINK acima e o chamador a desce
+export const ROCK_SINK = 2;
+const rockPalette = style => style.rock || STYLES['Outono ICQR'].rock; // estilo próprio antigo sem rocha
+// raio da pegada em metros de uma variante (o scatter e a geração usam a mesma conta)
+export const rockRadius = (kind, shapeT, voxel) => lerp(ROCKS[kind].r[0], ROCKS[kind].r[1], shapeT) * voxel;
+
+export function genRockVoxels(kind, shapeT, seed, style, { moss = false } = {}) {
+  const R = rng(seed), P = perlin(seed % 1000), g = voxelGrid();
+  const pal = rockPalette(style), stone = pal.stone.map(hexToRgb), mossC = pal.moss.map(hexToRgb);
+  const rad = lerp(ROCKS[kind].r[0], ROCKS[kind].r[1], shapeT);
+  const put = (x, y, z) => g.put(x, y + ROCK_SINK, z, 1, stone[0]);
+  // elipsoide alongado e girado, superfície mexida por ruído; y < 0 fica enterrado
+  const blob = (cx, cz, r, hk) => {
+    const a = R() * Math.PI, ca = Math.cos(a), sa = Math.sin(a), ex = 1 + R() * .45, H = r * hk, ri = Math.ceil(r * ex) + 1;
+    for (let y = -2; y <= Math.ceil(H * 1.2); y++) for (let dz = -ri; dz <= ri; dz++) for (let dx = -ri; dx <= ri; dx++) {
+      const u = (dx * ca + dz * sa) / (r * ex), v = (-dx * sa + dz * ca) / r, w = (y + .5) / H;
+      if (u * u + v * v + w * w < 1 - P.noise3((cx + dx) * .3, y * .3, (cz + dz) * .3) * .45) put(cx + dx, y, cz + dz);
+    }
+  };
+  if (kind === 'seixo') {
+    const n = 3 + Math.floor(R() * 3);
+    for (let k = 0; k < n; k++) {
+      const d = k ? rad * (.35 + R() * .55) : 0, a = R() * Math.PI * 2;
+      blob(Math.round(Math.cos(a) * d), Math.round(Math.sin(a) * d), 1 + R() * 1.1, .7 + R() * .3);
+    }
+  } else if (kind === 'afloramento') {
+    // estratos: cada camada é um contorno ruidoso menor que o de baixo
+    const H = Math.round(lerp(3, 5, shapeT)), ri = Math.ceil(rad * 1.6) + 1, ex = 1 + R() * .5;
+    for (let y = -2; y <= H; y++) {
+      const yy = Math.max(0, y), ry = rad * Math.pow(1 - yy / (H + 1), .7);
+      for (let dz = -ri; dz <= ri; dz++) for (let dx = -ri; dx <= ri; dx++) {
+        if (Math.hypot(dx / ex, dz) / ry + P.noise2(dx * .22 + yy * 3.1, dz * .22) * .35 < 1) put(dx, y, dz);
+      }
+    }
+  } else blob(0, 0, rad, kind === 'matacao' ? .8 : .7);
+  // cor: faixas de ruído (estratos no afloramento), musgo e neve no que fica exposto em cima
+  const snowCol = hexToRgb(style.snowColor || '#f4f7fa');
+  for (const v of g.map.values()) {
+    const y = v.y - ROCK_SINK, n = P.noise3(v.x * .18 + 7, y * (kind === 'afloramento' ? .6 : .18), v.z * .18);
+    v.col = shiftHsl(stone[Math.min(stone.length - 1, Math.floor(clamp01(n * .5 + .5 + (R() - .5) * .3) * stone.length))], 0, 0, (R() - .5) * .04 + y * .006);
+    const up = !g.has(v.x, v.y + 1, v.z);
+    if (moss && up && P.noise3(v.x * .25, v.y * .25 + 30, v.z * .25) > -.15) { v.type = 2; v.col = mossC[Math.floor(R() * mossC.length)]; }
+    if (style.snow > 0 && up && y >= 0 && hash3(v.x, v.z, seed) < style.snow) { v.type = 3; v.col = shiftHsl(snowCol, 0, 0, (R() - .5) * .03); }
+  }
+  let maxY = 0;
+  for (const v of g.map.values()) maxY = Math.max(maxY, v.y);
+  return { grid: g, height: maxY + 1, trunkW: 1, radius: rad };
+}
+
+/* Distribuição: grade com jitter por hash da célula, como as árvores (pintar num canto não mexe no
+   resto). maskAt = intenção (pintada ou automática, 0..1); roughAt = quão rochoso é o lugar (0..1),
+   puxa para matacões e afloramentos; blockedAt(x, z, r) = água; groundAt(x, z, r) = altura onde
+   assentar (o chamador usa o mínimo da pegada para não ficar flutuando). */
+export function scatterRocks(cfg) {
+  const { size, seed, voxel, maskAt, kindAt, roughAt, mossAt, groundAt, blockedAt, p } = cfg;
+  const half = size / 2, cell = 1.1, n = Math.ceil(size / cell), cands = [];
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const x = -half + (i + hash3(i, j, seed)) * cell, z = -half + (j + hash3(i, j, seed + 1)) * cell;
+    if (Math.abs(x) > half - 1 || Math.abs(z) > half - 1) continue;
+    const m = maskAt(x, z);
+    if (m <= .001 || hash3(i, j, seed + 3) > m * p.density) continue;
+    cands.push({ i, j, x, z, pr: hash3(i, j, seed + 2) });
+  }
+  cands.sort((a, b) => a.pr - b.pr);
+  const grid = new Map(), B = 3, out = [];
+  const bk = (a, b) => a + ',' + b;
+  for (const c of cands) {
+    let kind;
+    const forced = kindAt ? kindAt(c.x, c.z) : -1;
+    if (forced >= 0) kind = ROCK_KEYS[forced];
+    else {
+      const rough = roughAt ? clamp01(roughAt(c.x, c.z)) : 0;
+      const w = ROCK_KEYS.map(k => Math.max(0, p.mix[k] ?? 0) * (ROCKS[k].big ? lerp(.6, 2.5, rough) : 1));
+      let t = hash3(c.i, c.j, seed + 4) * w.reduce((a, b) => a + b, 0), k = 0;
+      while (k < w.length - 1 && t >= w[k]) { t -= w[k]; k++; }
+      if (!w[k]) continue;
+      kind = ROCK_KEYS[k];
+    }
+    const variant = Math.floor(hash3(c.i, c.j, seed + 5) * Math.max(1, p.variants | 0));
+    const scale = lerp(.8, 1.2, hash3(c.i, c.j, seed + 6));
+    const r = rockRadius(kind, bucketT(variant, p.variants), voxel) * scale;
+    if (blockedAt && blockedAt(c.x, c.z, r)) continue;
+    const bx = Math.floor(c.x / B), bz = Math.floor(c.z / B), reach = Math.ceil((r + 2.8) / B);
+    let ok = true;
+    for (let dz = -reach; dz <= reach && ok; dz++) for (let dx = -reach; dx <= reach && ok; dx++) {
+      for (const o of grid.get(bk(bx + dx, bz + dz)) || []) if ((o.x - c.x) ** 2 + (o.z - c.z) ** 2 < ((r + o.r) * .85) ** 2) { ok = false; break; }
+    }
+    if (!ok) continue;
+    const moss = mossAt ? mossAt(c.x, c.z) > .55 : false;
+    const rock = {
+      id: c.i + ',' + c.j, kind, x: c.x, z: c.z, y: groundAt(c.x, c.z, r), r, scale, variant, moss,
+      rot: Math.floor(hash3(c.i, c.j, seed + 7) * 4) * Math.PI / 2 + (hash3(c.i, c.j, seed + 8) - .5) * .5,
+      key: 'r:' + kind + ':' + variant + (moss ? ':m' : ''),
+    };
+    out.push(rock);
+    if (!grid.has(bk(bx, bz))) grid.set(bk(bx, bz), []);
+    grid.get(bk(bx, bz)).push(rock);
   }
   return out;
 }

@@ -5,9 +5,9 @@
 import * as THREE from 'three';
 import {
   SPECIES_KEYS, STYLES, defaultProject, migrateProject, sampleField, genTreeVoxels, colorTree, meshVoxels,
-  scatterTrees, scatterGrass, bucketT, variantSeed, hexToRgb, srgbToLinear, shiftHsl, hash3, clamp01, lerp,
+  scatterTrees, scatterGrass, bucketT, variantSeed, hexToRgb, srgbToLinear, shiftHsl, hash3, clamp01, lerp, smoothstep,
 } from './veg-core.js';
-import { seasonAt, lifeOf, stageKey, deadVariant, genFloraVoxels, scatterFlora } from './veg-core.js';
+import { seasonAt, lifeOf, stageKey, deadVariant, genFloraVoxels, scatterFlora, ROCKS, ROCK_SINK, genRockVoxels, scatterRocks } from './veg-core.js';
 import { SOILS, computeEco, suitability, suitabilityGrid, siteQuality } from './veg-eco.js';
 import { WATER_NONE, hasWater, carveHeights, buildWaterGeometry, packWater, unpackWater } from './veg-water.js';
 import { sculptRelief, reliefHeights, packRelief, unpackRelief } from './veg-relief.js';
@@ -186,7 +186,10 @@ export class VegWorld {
     this.treeGroup = new THREE.Group();
     this.grassGroup = new THREE.Group();
     this.floraGroup = new THREE.Group();
-    this.group.add(this.treeGroup, this.grassGroup, this.floraGroup);
+    this.rockGroup = new THREE.Group();
+    this.group.add(this.treeGroup, this.grassGroup, this.floraGroup, this.rockGroup);
+    this.rockVariants = new Map(); // 'r:tipo:variante[:m]' → { geo, mesh, cap, tint }
+    this.rocks = [];
     this.floraVariants = new Map(); // 'f:tipo:variante' → { geo, mesh, cap, tint }
     this.floraChunks = new Map();   // "cx,cz" → plantas do chunk
     scene.add(this.group);
@@ -200,7 +203,7 @@ export class VegWorld {
     this.trees = [];
     this.grassChunks = new Map();  // "cx,cz" → InstancedMesh
     this.overlay = 'nenhum';
-    this.stats = { arvores: 0, grama: 0, flora: 0, agua: 0, cachoeiras: 0, variantes: 0, fila: 0, recolor: 0, genMs: 0 };
+    this.stats = { arvores: 0, rochas: 0, grama: 0, flora: 0, agua: 0, cachoeiras: 0, variantes: 0, fila: 0, recolor: 0, genMs: 0 };
     this.setSize(project.size, project.masks);
   }
 
@@ -217,6 +220,9 @@ export class VegWorld {
     this.floraMask = new Float32Array(n * n); // intenção de sub-bosque pintada (além da que vem sob as árvores)
     this.waterMask = new Float32Array(n * n).fill(WATER_NONE); // nível da água, igual nas 2×2 células de cada bloco
     this.reliefMask = new Float32Array(n * n); // degraus esculpidos, igual nas 2×2 células de cada bloco
+    this.rockMask = new Float32Array(n * n); // -1..1: >0 pede rochas, <0 tira as que nasceriam sozinhas
+    this.rockKindMask = new Int8Array(n * n).fill(-1); // tipo forçado (índice em ROCK_KEYS) ou -1
+    this.rockCover = new Uint8Array(size * size); // blocos ocupados por rochas (árvores e plantas não nascem)
     this.eco = null;
     if (masks) this.loadMasks(masks);
     this.rebuildTerrain();
@@ -231,7 +237,8 @@ export class VegWorld {
   // value: espécie forçada (árvores) ou tipo de solo (solo)
   paint(layer, x, z, radius, strength, hardness, erase, speciesIdx = -1) {
     if (layer === 'solo') return this.paintSoil(x, z, radius, strength, hardness, erase ? 0 : speciesIdx);
-    const arr = layer === 'grama' ? this.grassMask : layer === 'flora' ? this.floraMask : this.treeMask;
+    const arr = layer === 'grama' ? this.grassMask : layer === 'flora' ? this.floraMask : layer === 'rochas' ? this.rockMask : this.treeMask;
+    const rocks = layer === 'rochas';
     const n = this.maskN, h = this.P.size / 2, r = this.res;
     const i0 = Math.max(0, Math.floor((x - radius + h) * r)), i1 = Math.min(n - 1, Math.ceil((x + radius + h) * r));
     const j0 = Math.max(0, Math.floor((z - radius + h) * r)), j1 = Math.min(n - 1, Math.ceil((z + radius + h) * r));
@@ -241,7 +248,9 @@ export class VegWorld {
       if (d > 1) continue;
       const f = 1 - Math.pow(d, Math.max(.05, hardness * 6)) ; // dureza: borda macia ou seca
       const k = j * n + i, a = clamp01(f) * strength;
-      if (erase) arr[k] = Math.max(0, arr[k] - (layer === 'arvores' ? a * TREE_MAX : a));
+      // rochas: apagar desce abaixo de zero, o que também some com as que nasceriam sozinhas
+      if (erase) arr[k] = Math.max(rocks ? -1 : 0, arr[k] - (layer === 'arvores' ? a * TREE_MAX : a));
+      else if (rocks) { arr[k] = Math.min(1, Math.max(0, arr[k]) + a); if (a > .05) this.rockKindMask[k] = speciesIdx; }
       else {
         // árvores: passar de novo por cima adensa (até TREE_MAX), mais devagar que a primeira demão
         const v = arr[k] + a;
@@ -252,7 +261,7 @@ export class VegWorld {
     return { x0: x - radius, x1: x + radius, z0: z - radius, z1: z + radius };
   }
   // camadas pintadas que o histórico guarda (todas maskN × maskN)
-  maskLayers() { return { trees: this.treeMask, grass: this.grassMask, species: this.speciesMask, soil: this.soilMask, flora: this.floraMask, water: this.waterMask, relief: this.reliefMask }; }
+  maskLayers() { return { trees: this.treeMask, grass: this.grassMask, species: this.speciesMask, soil: this.soilMask, flora: this.floraMask, water: this.waterMask, relief: this.reliefMask, rocks: this.rockMask, rockKind: this.rockKindMask }; }
   // bounds em mundo → retângulo inclusivo de células da máscara (mesma conta do paint)
   maskRect(b) {
     const n = this.maskN, h = this.P.size / 2, r = this.res;
@@ -539,10 +548,11 @@ export class VegWorld {
   }
   // sproutTick: dia em que as árvores que surgirem agora brotaram (modo Ecossistema, após pintar)
   rescatterTrees({ sproutTick = null } = {}) {
+    this.rescatterRocks(); // rochas primeiro: as árvores abrem espaço para elas
     const P = this.P, prev = new Set(this.trees.map(t => t.id));
     this.trees = scatterTrees({
       size: P.size, seed: P.seed,
-      maskAt: (x, z) => this.waterAt(x, z) ? 0 : this.sampleMask(this.treeMask, x, z),
+      maskAt: (x, z) => this.waterAt(x, z) || this.rockAt(x, z) ? 0 : this.sampleMask(this.treeMask, x, z),
       speciesMaskAt: (x, z) => { const k = this.maskIndex(x, z); return k < 0 ? -1 : this.speciesMask[k]; },
       heightAt: (x, z) => this.heightAt(x, z),
       slopeAt: (x, z) => this.slopeAt(x, z),
@@ -556,6 +566,83 @@ export class VegWorld {
     for (const id in plants) if (!ids.has(id)) delete plants[id]; // apagadas não guardam idade
     this.eco = null;
     this.applyTrees();
+  }
+  /* --- rochas: pintadas (rockMask > 0) ou sozinhas em solo de rocha e encosta (P.rocks.auto) --- */
+  // quão rochoso é o lugar (0..1): solo Rocha ou declive forte
+  roughAt(x, z) {
+    const k = this.ecoIndex(x, z);
+    if (k < 0) return 0;
+    return Math.max(SOILS[this.soilAt(x, z)]?.key === 'rocha' ? 1 : 0, smoothstep(.3, .8, this.getEco().slope[k]));
+  }
+  rescatterRocks() {
+    const P = this.P, R = P.rocks, s = P.size, h = s / 2, eco = this.getEco();
+    const ground = (x, z, r) => Math.min(this.heightAt(x, z), ...[[1, 0], [-1, 0], [0, 1], [0, -1]].map(([a, b]) => this.heightAt(x + a * r * .6, z + b * r * .6)));
+    const wet = (x, z, r) => [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => this.waterAt(x + a * r * .7, z + b * r * .7));
+    this.rocks = scatterRocks({
+      size: s, seed: P.seed + 211, voxel: P.style.voxel, p: R,
+      maskAt: (x, z) => {
+        const m = this.sampleMask(this.rockMask, x, z), auto = R.auto * .8 * this.roughAt(x, z);
+        return m < 0 ? auto * (1 + m) : Math.max(m, auto);
+      },
+      kindAt: (x, z) => { const k = this.maskIndex(x, z); return k < 0 ? -1 : this.rockKindMask[k]; },
+      roughAt: (x, z) => this.roughAt(x, z),
+      mossAt: (x, z) => { const k = this.ecoIndex(x, z); return k < 0 ? 0 : eco.moisture[k]; },
+      groundAt: ground, blockedAt: wet,
+    });
+    // pegada de cada rocha nos blocos: árvores, grama e flora não nascem ali
+    this.rockCover.fill(0);
+    for (const r of this.rocks) {
+      const rr = r.r * .75, i0 = Math.max(0, Math.floor(r.x - rr + h)), i1 = Math.min(s - 1, Math.floor(r.x + rr + h));
+      const j0 = Math.max(0, Math.floor(r.z - rr + h)), j1 = Math.min(s - 1, Math.floor(r.z + rr + h));
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (Math.hypot(i - h + .5 - r.x, j - h + .5 - r.z) <= Math.max(.5, rr)) this.rockCover[j * s + i] = 1;
+    }
+    this.applyRocks();
+  }
+  rockAt(x, z) { const k = this.ecoIndex(x, z); return k >= 0 && this.rockCover[k] === 1; }
+  rockVariant(key) {
+    let v = this.rockVariants.get(key);
+    if (v) return v;
+    const [, kind, vi, moss] = key.split(':'), R = this.P.rocks;
+    const rock = genRockVoxels(kind, (+vi + .5) / Math.max(1, R.variants), variantSeed('r' + kind, 0, vi, this.P.seed), this.P.style, { moss: !!moss });
+    const m = meshVoxels(rock, this.P.style.voxel);
+    for (let i = 1; i < m.veg.length; i += 2) m.veg[i] = 0; // pedra não balança ao vento
+    v = { geo: treeGeometry(m), mesh: null, cap: 0, tint: null, big: ROCKS[kind].big || kind === 'pedra' };
+    this.rockVariants.set(key, v);
+    return v;
+  }
+  applyRocks() {
+    const groups = new Map();
+    for (const r of this.rocks) { if (!groups.has(r.key)) groups.set(r.key, []); groups.get(r.key).push(r); }
+    for (const [key, v] of this.rockVariants) if (!groups.has(key) && v.mesh) v.mesh.count = 0;
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), sc = new THREE.Vector3(), p = new THREE.Vector3();
+    for (const [key, list] of groups) {
+      const v = this.rockVariant(key);
+      if (list.length > v.cap) {
+        if (v.mesh) { this.rockGroup.remove(v.mesh); v.mesh.dispose(); }
+        v.cap = Math.max(16, 1 << Math.ceil(Math.log2(list.length)));
+        v.mesh = new THREE.InstancedMesh(v.geo, this.treeMats.mat, v.cap);
+        v.mesh.customDepthMaterial = this.treeMats.depth;
+        v.mesh.castShadow = v.big; v.mesh.receiveShadow = true; v.mesh.frustumCulled = false;
+        v.tint = new THREE.InstancedBufferAttribute(new Float32Array(v.cap * 3), 3);
+        v.geo.setAttribute('iTint', v.tint);
+        this.rockGroup.add(v.mesh);
+      }
+      list.forEach((r, i) => {
+        q.setFromAxisAngle(up, r.rot); sc.setScalar(r.scale); p.set(r.x, r.y - ROCK_SINK * this.P.style.voxel * r.scale, r.z);
+        v.mesh.setMatrixAt(i, m.compose(p, q, sc));
+        v.tint.setXYZ(i, (hash3(i, r.variant, 3) - .5) * .04, 0, (hash3(i, r.variant, 4) - .5) * .12); // só o musgo recebe
+      });
+      v.mesh.count = list.length;
+      v.mesh.instanceMatrix.needsUpdate = true;
+      v.tint.needsUpdate = true;
+    }
+    this.stats.rochas = this.rocks.length;
+  }
+  // paleta, voxel ou variantes mudaram: refaz as poucas variantes de rocha
+  invalidateRocks() {
+    for (const v of this.rockVariants.values()) { if (v.mesh) { this.rockGroup.remove(v.mesh); v.mesh.dispose(); } v.geo.dispose(); }
+    this.rockVariants.clear();
+    this.applyRocks();
   }
   // estágio de vida (modo Ecossistema): tamanho desenhado e variante (viva, morta, toco) por árvore
   updateLife() {
@@ -659,7 +746,7 @@ export class VegWorld {
       trunks.get(k).push(t);
     }
     return (x, z) => {
-      if (this.waterAt(x, z)) return true;
+      if (this.waterAt(x, z) || this.rockAt(x, z)) return true;
       for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
         const l = trunks.get((Math.floor(x) + dx) + ',' + (Math.floor(z) + dz));
         if (l) for (const t of l) if ((t.x - x) ** 2 + (t.z - z) ** 2 < (.35 * (t.drawScale ?? t.scale)) ** 2) return true;
@@ -778,6 +865,7 @@ export class VegWorld {
     if (sameVoxel) for (const [key, v] of this.variants) { if (v.ready) this.recolorQueue.add(key); }
     else this.invalidateVariants();
     this.invalidateFlora();
+    this.invalidateRocks();
     this.U.uGBase.value.set(this.P.style.grass.base);
     this.U.uGTip.value.set(this.P.style.grass.tip);
   }
@@ -802,7 +890,8 @@ export class VegWorld {
   packMasks() {
     const q = a => { const u = new Uint8Array(a.length); for (let i = 0; i < a.length; i++) u[i] = Math.round(a[i] * 255); return u; };
     const b64 = u => { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
-    return { n: this.maskN, trees: b64(q(this.treeMask.map(v => v / TREE_MAX))), treeMax: TREE_MAX, grass: b64(q(this.grassMask)), species: b64(new Uint8Array(this.speciesMask.buffer.slice(0))), soil: b64(this.soilMask), flora: b64(q(this.floraMask)), water: b64(packWater(this.blockWater())), relief: b64(new Uint8Array(packRelief(this.blockRelief()).buffer)) };
+    return { n: this.maskN, trees: b64(q(this.treeMask.map(v => v / TREE_MAX))), treeMax: TREE_MAX, grass: b64(q(this.grassMask)), species: b64(new Uint8Array(this.speciesMask.buffer.slice(0))), soil: b64(this.soilMask), flora: b64(q(this.floraMask)), water: b64(packWater(this.blockWater())), relief: b64(new Uint8Array(packRelief(this.blockRelief()).buffer)),
+      rocks: b64(q(this.rockMask.map(v => (v + 1) / 2))), rockKind: b64(new Uint8Array(this.rockKindMask.buffer.slice(0))) };
   }
   // nível da água por bloco (célula do canto de cada 2×2)
   blockWater() {
@@ -819,6 +908,8 @@ export class VegWorld {
     this.speciesMask.set(new Int8Array(sp.buffer));
     if (m.soil) this.soilMask.set(un(m.soil)); // projetos antigos: tudo terra
     if (m.flora) { const f = un(m.flora); for (let i = 0; i < f.length; i++) this.floraMask[i] = f[i] / 255; }
+    if (m.rocks) { const r = un(m.rocks); for (let i = 0; i < r.length; i++) { const v = r[i] / 255 * 2 - 1; this.rockMask[i] = Math.abs(v) < .01 ? 0 : v; } } // 128 ≈ 0; sem ele: só rochas automáticas
+    if (m.rockKind) this.rockKindMask.set(new Int8Array(un(m.rockKind).buffer));
     if (m.relief) { // por bloco → 2×2 células; projetos sem ele: relevo só do ruído
       const r = unpackRelief(un(m.relief)), s = this.P.size, n = this.maskN;
       if (r.length === s * s) for (let j = 0; j < s; j++) for (let i = 0; i < s; i++) {
@@ -843,6 +934,7 @@ export class VegWorld {
       baked: {
         voxel: this.P.style.voxel,
         trees: this.trees.map(t => ({ s: t.species, v: t.vkey ?? t.key, p: [r3(t.x), r3(t.y), r3(t.z)], r: r3(t.rot), k: r3(t.drawScale ?? t.scale), tint: t.tint.map(r3), ...(t.life ? { stage: t.life.stage } : {}) })),
+        rocks: this.rocks.map(r => ({ k: r.kind, v: r.key, p: [r3(r.x), r3(r.y), r3(r.z)], r: r3(r.rot), s: r3(r.scale), radius: r3(r.r) })),
       },
     };
   }

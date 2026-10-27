@@ -12,7 +12,8 @@ test('projeto v1 abre como versão atual sem perder nada', () => {
   assert.equal(p.trees.spacingMin, 1.9);
   assert.equal(p.wind.strength, .8);
   assert.deepEqual(p.masks, v1.masks);
-  const { flora, ...style } = p.style;
+  const { flora, rock, ...style } = p.style;
+  assert.deepEqual(rock, STYLES['Outono ICQR'].rock, 'paleta de rocha nova vem do preset do estilo');
   assert.deepEqual(style, v1.style);
   assert.deepEqual(flora, STYLES['Outono ICQR'].flora, 'paleta de flora nova vem do preset do estilo');
   assert.deepEqual(p.ecology.plants, {}, 'v1 não tem plantas com idade: todas adultas');

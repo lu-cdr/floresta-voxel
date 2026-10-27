@@ -258,7 +258,8 @@
     <button data-tool="flora" aria-pressed="false" title="Samambaias, flores e musgo onde o lugar serve">Flora <kbd>4</kbd></button>
     <button data-tool="agua" aria-pressed="false" title="Rios, lagos e cachoeiras">Água <kbd>5</kbd></button>
     <button data-tool="relevo" aria-pressed="false" title="Subir, descer, nivelar e suavizar o terreno">Relevo <kbd>6</kbd></button>
-    <button data-tool="borracha" aria-pressed="false">Borracha <kbd>E</kbd></button>
+    <button data-tool="rochas" aria-pressed="false" title="Seixos, pedras, matacões e afloramentos">Rochas <kbd>7</kbd></button>
+    <button data-tool="borracha" aria-pressed="false" class="span">Borracha <kbd>E</kbd></button>
   </div>
   <div class="seg" id="histSeg">
     <button id="bUndo" disabled aria-keyshortcuts="Control+Z" title="Nada para desfazer">↶ Desfazer</button>
@@ -284,8 +285,12 @@
     <select id="bRelief"><option value="subir">Subir</option><option value="descer">Descer</option><option value="nivelar">Nivelar</option><option value="suavizar">Suavizar</option><option value="original">Voltar ao original</option></select>
   </div>
   <p class="note" data-for="relevo" id="reliefNote"></p>
+  <div class="row" data-for="rochas"><label for="bRock">Tipo</label>
+    <select id="bRock"><option value="-1">Automático (pelo lugar)</option></select>
+  </div>
+  <p class="note" data-for="rochas">Em solo de rocha e encosta íngreme elas aparecem sozinhas; matacões e afloramentos preferem esses lugares. Shift tira rochas, inclusive as automáticas.</p>
   <div class="row" data-for="borracha"><label for="bErase">Borracha apaga</label>
-    <select id="bErase"><option value="ambos">tudo que cresce</option><option value="arvores">só árvores</option><option value="grama">só grama</option><option value="flora">só flora</option><option value="agua">só água</option><option value="relevo">só relevo</option></select>
+    <select id="bErase"><option value="ambos">tudo que cresce</option><option value="arvores">só árvores</option><option value="grama">só grama</option><option value="flora">só flora</option><option value="agua">só água</option><option value="relevo">só relevo</option><option value="rochas">só rochas</option></select>
   </div>
   </details>
   <details class="sec" id="secView" open><summary>Ver no terreno</summary>
@@ -355,6 +360,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import GUI from 'lil-gui';
+import { ROCKS, ROCK_KEYS } from './veg-core.js';
 import { VegWorld, defaultProject, migrateProject, treeGeometry, bakedTreeMesh } from './veg-render.js';
 import { SPECIES, SPECIES_KEYS, STYLES, SEASONS, STAGE_LABELS, seasonAt, seasonStyle, lightAt, genTreeVoxels, meshVoxels, variantSeed } from './veg-core.js';
 import { History, snapshotLayers, makePatch, applyPatch } from './veg-history.js';
@@ -400,7 +406,7 @@ const persp = new THREE.PerspectiveCamera(42, 1, .1, 800);
 const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -400, 800);
 let camera = persp;
 let controls;
-const brush = { tool: 'arvores', radius: 7, strength: .6, hard: .35, species: -1, soil: 1, erase: 'ambos', water: 'rio', relief: 'subir' };
+const brush = { tool: 'arvores', radius: 7, strength: .6, hard: .35, species: -1, soil: 1, erase: 'ambos', water: 'rio', relief: 'subir', rock: -1 };
 const toolRadius = { agua: 2, relevo: 5 }; // cada ferramenta lembra o próprio raio (rio pede pincel fino)
 function makeControls() {
   const prev = controls ? { t: controls.target.clone() } : null;
@@ -475,6 +481,8 @@ const RELIEF_NOTES = {
 const RELIEF_LABELS = { subir: 'subir terreno', descer: 'descer terreno', nivelar: 'nivelar terreno', suavizar: 'suavizar terreno', original: 'relevo original' };
 const syncRelief = () => { brush.relief = $('#bRelief').value; $('#reliefNote').textContent = RELIEF_NOTES[brush.relief]; };
 $('#bRelief').addEventListener('change', syncRelief); syncRelief();
+ROCK_KEYS.forEach((k, i) => $('#bRock').add(new Option(ROCKS[k].label, i)));
+$('#bRock').addEventListener('change', e => brush.rock = +e.target.value);
 
 // anel do pincel acompanhando o relevo
 const RING_N = 72;
@@ -506,6 +514,7 @@ const history = new History({ onChange: syncHistoryUi });
 function markMasks(bounds, patch) {
   if (patch.after.trees || patch.after.species) dirty.trees = dirty.sprout = true;
   if (patch.after.soil) world.eco = null;
+  if (patch.after.soil || patch.after.rocks || patch.after.rockKind) dirty.trees = true; // rochas automáticas dependem do solo
   if (patch.after.water) dirty.water = true;
   if (patch.after.relief) dirty.relief = true;
   if (dirty.grass !== 'all') dirty.grass = mergeBounds(dirty.grass, bounds);
@@ -576,7 +585,7 @@ function stamp(e, first) {
   if (!hit) return;
   cursor.x = hit.x; cursor.z = hit.z; cursor.on = true;
   const erase = brush.tool === 'borracha' || e.shiftKey;
-  const layers = ['grama', 'arvores', 'solo', 'flora', 'agua', 'relevo'].includes(brush.tool) ? [brush.tool]
+  const layers = ['grama', 'arvores', 'solo', 'flora', 'agua', 'relevo', 'rochas'].includes(brush.tool) ? [brush.tool]
     : brush.erase === 'ambos' ? ['arvores', 'grama', 'flora'] : [brush.erase];
   const s = brush.strength * (erase ? 1 : .5);
   // carimbos espaçados ao longo do traço, para um arrasto rápido não deixar falhas
@@ -611,8 +620,9 @@ function stamp(e, first) {
         if (b) { dirty.water = true; if (dirty.grass !== 'all') dirty.grass = mergeBounds(dirty.grass, b); if (stroke) stroke.bounds = mergeBounds(stroke.bounds, b); }
         continue;
       }
-      const b = world.paint(L, x, z, brush.radius, L === 'solo' ? brush.strength : s, brush.hard, erase, L === 'solo' ? brush.soil : brush.species);
+      const b = world.paint(L, x, z, brush.radius, L === 'solo' ? brush.strength : s, brush.hard, erase, L === 'solo' ? brush.soil : L === 'rochas' ? brush.rock : brush.species);
       if (L === 'arvores') dirty.trees = dirty.sprout = true;
+      else if (L === 'rochas' || L === 'solo') dirty.trees = true; // rochas saem junto com as árvores
       if (dirty.grass !== 'all') dirty.grass = mergeBounds(dirty.grass, b);
       if (stroke) stroke.bounds = mergeBounds(stroke.bounds, b);
     }
@@ -620,6 +630,7 @@ function stamp(e, first) {
   if (stroke && !stroke.label) stroke.label = brush.tool === 'solo' ? (erase ? 'solo de volta a terra' : 'solo: ' + SOILS[brush.soil].label.toLowerCase())
     : brush.tool === 'agua' ? (erase ? 'apagar água' : brush.water)
     : stroke.reliefMode ? RELIEF_LABELS[stroke.reliefMode]
+    : brush.tool === 'rochas' ? (erase ? 'tirar rochas' : 'pincel de rochas')
     : erase ? 'borracha' : brush.tool === 'grama' ? 'pincel de grama' : brush.tool === 'flora' ? 'pincel de flora' : 'pincel de árvores';
   lastHit = hit;
   dirty.colors = true;
@@ -672,6 +683,7 @@ addEventListener('keydown', e => {
   else if (k === '4') setTool('flora');
   else if (k === '5') setTool('agua');
   else if (k === '6') setTool('relevo');
+  else if (k === '7') setTool('rochas');
   else if (k === 'e') setTool('borracha');
   else if (k === '[') setRadius(Math.max(1, brush.radius - 1));
   else if (k === ']') setRadius(Math.min(24, brush.radius + 1));
@@ -801,6 +813,14 @@ function buildGuiFolders() {
   ffl.add(P.flora, 'variants', 1, 6, 1).name('variantes').onChange(() => { world.invalidateFlora(); floraDirty(); });
   for (const k of Object.keys(P.flora.mix)) ffl.add(P.flora.mix, k, 0, 2, .05).name(k).onChange(floraDirty);
   ffl.close();
+
+  const frk = gui.addFolder('Rochas');
+  const rocksDirty = () => { dirty.trees = true; dirty.grass = 'all'; };
+  frk.add(P.rocks, 'density', 0, 1, .01).name('chance por célula').onChange(rocksDirty);
+  frk.add(P.rocks, 'auto', 0, 1, .01).name('sozinhas (rocha/encosta)').onChange(rocksDirty);
+  frk.add(P.rocks, 'variants', 1, 6, 1).name('variantes').onChange(() => { world.invalidateRocks(); rocksDirty(); });
+  for (const k of Object.keys(P.rocks.mix)) frk.add(P.rocks.mix, k, 0, 2, .05).name(ROCKS[k].label.toLowerCase()).onChange(rocksDirty);
+  frk.close();
 
   const fw = gui.addFolder('Vento');
   fw.add(P.wind, 'strength', 0, 2, .01).name('força');
@@ -1193,7 +1213,7 @@ function frame(now) {
   frames++;
   if (now - fpsT > 500) {
     stats.fps = Math.round(frames * 1000 / (now - fpsT)); frames = 0; fpsT = now;
-    $('#stats').textContent = `${world.stats.arvores} árvores · ${world.stats.flora.toLocaleString('pt-BR')} plantas · ${world.stats.grama.toLocaleString('pt-BR')} lâminas · ${stats.fps} fps`;
+    $('#stats').textContent = `${world.stats.arvores} árvores · ${world.stats.rochas} rochas · ${world.stats.flora.toLocaleString('pt-BR')} plantas · ${world.stats.grama.toLocaleString('pt-BR')} lâminas · ${stats.fps} fps`;
   }
   requestAnimationFrame(frame);
 }

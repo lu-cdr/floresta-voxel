@@ -128,6 +128,12 @@ function frame(now) {
     const r = .35 * (t.drawScale ?? t.scale) + .3, dx = nx - t.x, dz = nz - t.z, d = Math.hypot(dx, dz);
     if (d < r && d > 1e-4) { nx = t.x + dx / d * r; nz = t.z + dz / d * r; }
   }
+  // pedras, matacões e afloramentos também barram; seixos se pisa por cima
+  for (const k of world.rocks) {
+    if (k.kind === 'seixo') continue;
+    const r = k.r * .8 + .25, dx = nx - k.x, dz = nz - k.z, d = Math.hypot(dx, dz);
+    if (d < r && d > 1e-4) { nx = k.x + dx / d * r; nz = k.z + dz / d * r; }
+  }
   if (world.heightAt(nx, nz) - p.y <= .6) { p.x = nx; p.z = nz; }
   p.y += (world.heightAt(p.x, p.z) - p.y) * (1 - Math.exp(-dt * 18));
   if (vel.lengthSq() > .05) player.rotation.y = Math.atan2(vel.x, vel.y);
