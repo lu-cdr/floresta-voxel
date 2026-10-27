@@ -1522,6 +1522,7 @@ function frame(now) {
   if (world.stats.fila) busy(`Gerando variantes… ${world.stats.fila} na fila`);
   else if ($('#busy').textContent.startsWith('Gerando variantes')) busy(''); // recolorir é rápido e visível: sem aviso
   if (walkOn) { walker.frozen = photoOn; walker.update(Math.min(.05, (now - (frame.last ?? now)) / 1000)); }
+  else controls.update(); // desligado ou não, o update reposiciona a câmera: no passeio ele não roda
   // joystick visível onde o dedo começou a arrastar (toque)
   const mv = walkOn && walker.move, joy = $('#joy');
   joy.classList.toggle('on', !!mv);
@@ -1530,7 +1531,6 @@ function frame(now) {
     joy.style.left = mv.x0 + 'px'; joy.style.top = mv.y0 + 'px';
     joy.firstElementChild.style.transform = `translate(${mv.x * 50 * k}px, ${mv.y * 50 * k}px)`;
   }
-  else controls.update(); // desligado ou não, o update reposiciona a câmera: no passeio ele não roda
   frame.last = now;
   renderer.render(scene, camera);
   frames++;
