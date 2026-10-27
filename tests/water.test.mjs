@@ -67,3 +67,29 @@ test('máscara de árvores acima de 1 adensa a mata', () => {
   const dense = scatterTrees(makeWorld(P, { treeMask: new Float32Array(n * n).fill(2) }).cfg).length;
   assert.ok(dense > normal * 1.5, `${normal} → ${dense}`);
 });
+
+test('margem: faixa 1 colada na água, faixa 2 no bloco seguinte, água e longe ficam 0', async () => {
+  const { shoreBands } = await import('../veg-water.js');
+  const base = stairs(), w = river(base), b = shoreBands(w, S);
+  for (let i = 0; i < S; i++) {
+    assert.equal(b[5 * S + i], 0, 'água não é margem');
+    assert.equal(b[4 * S + i], 1); assert.equal(b[6 * S + i], 1);
+    assert.equal(b[3 * S + i], 2); assert.equal(b[7 * S + i], 2);
+    assert.equal(b[1 * S + i], 0);
+  }
+  assert.ok(shoreBands(new Float32Array(S * S).fill(WATER_NONE), S).every(v => v === 0));
+});
+
+test('espuma fraca na beira da água, forte só sob a cachoeira', async () => {
+  const SHORE_FOAM = Math.fround((await import('../veg-water.js')).SHORE_FOAM); // o atributo é Float32
+  const base = stairs(), w = river(base), g = buildWaterGeometry({ size: S, water: w, heights: carveHeights(base, w, S, .5) });
+  const foam = [];
+  for (let v = 0; v < g.depth.length; v++) if (g.water[v * 4 + 2] === 0 && g.normal[v * 3 + 1] === 1) foam.push(g.water[v * 4 + 3]);
+  assert.ok(foam.every(f => f === SHORE_FOAM || f === 1), 'rio de 1 bloco: toda borda de superfície toca terra ou queda');
+  // lago 3×3: o bloco do meio não encosta em terra, então sem espuma nos cantos internos
+  const lw = new Float32Array(S * S).fill(WATER_NONE);
+  for (let j = 4; j < 7; j++) for (let i = 4; i < 7; i++) lw[j * S + i] = 0;
+  const L = buildWaterGeometry({ size: S, water: lw, heights: carveHeights(new Float32Array(S * S), lw, S, .5) });
+  const vals = new Set(); for (let v = 0; v < L.depth.length; v++) if (L.normal[v * 3 + 1] === 1) vals.add(L.water[v * 4 + 3]);
+  assert.deepEqual([...vals].sort(), [0, SHORE_FOAM]);
+});

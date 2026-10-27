@@ -6,6 +6,7 @@
 export const WATER_NONE = -1e4;
 export const hasWater = v => v > WATER_NONE / 2;
 export const SURF_DROP = .15; // superfície um pouco abaixo da margem
+export const SHORE_FOAM = .35;
 const N4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const EPS = 1e-4;
 
@@ -85,7 +86,13 @@ export function buildWaterGeometry({ size, water, heights }) {
       const ii = i + a, jj = j + b;
       return ii >= 0 && jj >= 0 && ii < size && jj < size && water[jj * size + ii] > w + EPS ? 1 : 0;
     });
-    const foamAt = (x, z) => Math.max(x === x1 ? fallIn[0] : 0, x === x0 ? fallIn[1] : 0, z === z1 ? fallIn[2] : 0, z === z0 ? fallIn[3] : 0);
+    // espuma fraca na beira: canto encostado num vizinho seco (0,35), forte onde cai cachoeira (1)
+    const shore = N4.map(([a, b]) => {
+      const ii = i + a, jj = j + b;
+      return ii >= 0 && jj >= 0 && ii < size && jj < size && !hasWater(water[jj * size + ii]) ? SHORE_FOAM : 0;
+    });
+    const foamAt = (x, z) => Math.max(x === x1 ? fallIn[0] : 0, x === x0 ? fallIn[1] : 0, z === z1 ? fallIn[2] : 0, z === z0 ? fallIn[3] : 0,
+      x === x1 ? shore[0] : 0, x === x0 ? shore[1] : 0, z === z1 ? shore[2] : 0, z === z0 ? shore[3] : 0);
     const top = [[x0, z0], [x0, z1], [x1, z1], [x1, z0]];
     for (const t of [0, 1, 2, 0, 2, 3]) push([top[t][0], y, top[t][1]], [0, 1, 0], [fx, fz, 0, foamAt(top[t][0], top[t][1])], depth);
     // laterais (mesma ordem de vértices das laterais do terreno)
@@ -125,6 +132,13 @@ export function waterProximity(water, size, reach = 5) {
     }
   }
   for (let k = 0; k < n; k++) if (d[k] >= 0) out[k] = 1 - d[k] / (reach + 1);
+  return out;
+}
+
+// faixas da margem por bloco seco: 1 = colado na água (areia/cascalho), 2 = segundo bloco (lama úmida), 0 = resto
+export function shoreBands(water, size) {
+  const p = waterProximity(water, size, 2), out = new Uint8Array(size * size);
+  for (let k = 0; k < out.length; k++) if (!hasWater(water[k]) && p[k] > 0) out[k] = p[k] > .5 ? 1 : 2;
   return out;
 }
 

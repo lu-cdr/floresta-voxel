@@ -5,11 +5,11 @@
 import * as THREE from 'three';
 import {
   SPECIES_KEYS, STYLES, defaultProject, migrateProject, sampleField, genTreeVoxels, colorTree, meshVoxels,
-  scatterTrees, scatterGrass, bucketT, variantSeed, hexToRgb, srgbToLinear, shiftHsl, hash3, clamp01, lerp, smoothstep,
+  scatterTrees, scatterGrass, bucketT, variantSeed, hexToRgb, srgbToLinear, shiftHsl, hash3, clamp01, lerp, smoothstep, perlin,
 } from './veg-core.js';
-import { seasonAt, lifeOf, stageKey, deadVariant, genFloraVoxels, scatterFlora, ROCKS, ROCK_SINK, genRockVoxels, scatterRocks } from './veg-core.js';
+import { seasonAt, lifeOf, stageKey, deadVariant, genFloraVoxels, scatterFlora, ROCKS, ROCK_KEYS, ROCK_SINK, genRockVoxels, scatterRocks } from './veg-core.js';
 import { SOILS, computeEco, suitability, suitabilityGrid, siteQuality } from './veg-eco.js';
-import { WATER_NONE, hasWater, carveHeights, buildWaterGeometry, packWater, unpackWater } from './veg-water.js';
+import { WATER_NONE, hasWater, carveHeights, buildWaterGeometry, packWater, unpackWater, shoreBands } from './veg-water.js';
 import { sculptRelief, reliefHeights, packRelief, unpackRelief } from './veg-relief.js';
 
 // máscara de árvores vai até 2: de 0 a 1 é a chance normal, de 1 a 2 é mata adensada
@@ -169,6 +169,8 @@ function bladeGeometry(style, width) {
 
 /* ---------- campo visualizado no terreno (debug) ---------- */
 const BED_RGB = [.42, .36, .27]; // leito de rio/lago
+// margem (veg-water shoreBands): areia ou cascalho colado na água, lama no segundo bloco; estilo pode trocar
+const SHORE_COLORS = { sand: '#c2ad7e', gravel: '#8f897c', mud: '#5a4732' };
 function ramp(t) {
   // azul-escuro → verde → amarelo, legível nos dois temas
   const stops = [[.15, .12, .35], [.13, .45, .55], [.35, .7, .35], [.98, .86, .3]];
@@ -377,6 +379,7 @@ export class VegWorld {
   applyWater() {
     const { size, terrain } = this.P;
     this.water = this.blockWater();
+    this.shore = shoreBands(this.water, size);
     this.heights = carveHeights(this.baseHeights, this.water, size, terrain.step);
     this.buildTerrainMesh();
     this.buildWaterMesh();
@@ -459,6 +462,8 @@ export class VegWorld {
     const field = this.overlay !== 'nenhum' && !this.overlay.startsWith('eco:') ? (this.overlay === 'terreno' ? terrain.field : this.P.fields[this.overlay]) : null;
     const ecoV = this.overlay.startsWith('eco:') ? this.ecoOverlay(this.overlay.slice(4)) : null;
     const soilC = SOILS.map(s => s.color && hexToRgb(s.color));
+    const SH = Object.fromEntries(Object.entries({ ...SHORE_COLORS, ...(style.shore || {}) }).map(([k, v]) => [k, hexToRgb(v)]));
+    const P3 = perlin(this.P.seed % 1000);
     for (let j = 0; j < size; j++) for (let i = 0; i < size; i++) {
       const t = j * size + i, x = i - h + .5, z = j - h + .5;
       const y = this.heights[t] / Math.max(.01, terrain.amp);
@@ -468,14 +473,21 @@ export class VegWorld {
       c = c.map((v, k) => lerp(v, C.litter[k], tm * .35));
       const so = this.soilAt(x, z);
       if (so) c = c.map((v, k) => lerp(v, soilC[so][k], SOILS[so].mix));
+      const band = this.shore[t];
+      let side = null;
       if (hasWater(this.water[t])) c = c.map((v, k) => lerp(v, BED_RGB[k], .7));
-      else if (this.nearWater(i, j)) c = c.map(v => v * .82); // margem molhada
+      else if (band && !so) { // margem sem solo pintado: praia de areia ou cascalho em manchas, depois lama
+        const g = P3.noise2(i * .18, j * .18) + (hash3(i, j, 13) - .5) * .15 > .15 ? SH.gravel : SH.sand; // manchas, não xadrez
+        const m = band === 1 ? g : SH.mud;
+        c = c.map((v, k) => lerp(v, m[k], band === 1 ? .8 : .45));
+        if (band === 1) side = shiftHsl(c, 0, 0, -.12); // barranco molhado no lugar da cor de penhasco
+      }
       if (snowC) c = c.map((v, k) => lerp(v, snowC[k], style.snow * .7));
       c = shiftHsl(c, 0, 0, (hash3(i, j, 5) - .5) * .035);
       if (field) c = ramp(sampleField(field, x, z)).map((v, k) => lerp(c[k], v, .82));
       if (ecoV) c = ramp(ecoV[t]).map((v, k) => lerp(c[k], v, .82));
       tileCol[t] = srgbToLinear(c);
-      sideCol[t] = srgbToLinear(shiftHsl(C.cliff, 0, 0, (hash3(i, j, 9) - .5) * .05));
+      sideCol[t] = srgbToLinear(shiftHsl(side || C.cliff, 0, 0, (hash3(i, j, 9) - .5) * .05));
     }
     const col = this.terrainMesh.geometry.attributes.color;
     for (let v = 0; v < this.tileOf.length; v++) {
@@ -485,14 +497,8 @@ export class VegWorld {
     }
     col.needsUpdate = true;
   }
-  nearWater(i, j) {
-    const s = this.P.size;
-    for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const ii = i + a, jj = j + b;
-      if (ii >= 0 && jj >= 0 && ii < s && jj < s && hasWater(this.water[jj * s + ii])) return true;
-    }
-    return false;
-  }
+  // faixa da margem no ponto: 1 colado na água, 2 segundo bloco, 0 longe ou fora do mapa
+  shoreAt(x, z) { const k = this.ecoIndex(x, z); return k < 0 ? 0 : this.shore[k]; }
   // 'umidade' | 'luz' | 'fertilidade' | 'declive' | 'adequacao:<espécie>' → valor por bloco
   ecoOverlay(name) {
     const e = this.getEco();
@@ -576,15 +582,22 @@ export class VegWorld {
   }
   rescatterRocks() {
     const P = this.P, R = P.rocks, s = P.size, h = s / 2, eco = this.getEco();
-    const ground = (x, z, r) => Math.min(this.heightAt(x, z), ...[[1, 0], [-1, 0], [0, 1], [0, -1]].map(([a, b]) => this.heightAt(x + a * r * .6, z + b * r * .6)));
-    const wet = (x, z, r) => [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => this.waterAt(x + a * r * .7, z + b * r * .7));
+    // assenta no ponto seco mais baixo da pegada (o leito escavado afundaria a pedra da margem)
+    const ground = (x, z, r) => Math.min(this.heightAt(x, z), ...[[1, 0], [-1, 0], [0, 1], [0, -1]]
+      .map(([a, b]) => [x + a * r * .6, z + b * r * .6]).filter(([px, pz]) => !this.waterAt(px, pz)).map(([px, pz]) => this.heightAt(px, pz)));
+    // centro na terra; a borda pode encostar na água (pedra de margem)
+    const wet = (x, z, r) => [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => this.waterAt(x + a * r * .4, z + b * r * .4));
     this.rocks = scatterRocks({
       size: s, seed: P.seed + 211, voxel: P.style.voxel, p: R,
       maskAt: (x, z) => {
-        const m = this.sampleMask(this.rockMask, x, z), auto = R.auto * .8 * this.roughAt(x, z);
+        const shore = this.shoreAt(x, z) === 1 ? 1 : 0; // seixos na beira d'água
+        const m = this.sampleMask(this.rockMask, x, z), auto = Math.max(R.auto * .8 * this.roughAt(x, z), shore * .9);
         return m < 0 ? auto * (1 + m) : Math.max(m, auto);
       },
-      kindAt: (x, z) => { const k = this.maskIndex(x, z); return k < 0 ? -1 : this.rockKindMask[k]; },
+      kindAt: (x, z) => {
+        const k = this.maskIndex(x, z), forced = k < 0 ? -1 : this.rockKindMask[k];
+        return forced >= 0 || this.shoreAt(x, z) !== 1 || this.sampleMask(this.rockMask, x, z) > 0 ? forced : ROCK_KEYS.indexOf('seixo');
+      },
       roughAt: (x, z) => this.roughAt(x, z),
       mossAt: (x, z) => { const k = this.ecoIndex(x, z); return k < 0 ? 0 : eco.moisture[k]; },
       groundAt: ground, blockedAt: wet,
@@ -716,7 +729,7 @@ export class VegWorld {
       if (old) { this.grassGroup.remove(old); old.dispose(); this.grassChunks.delete(key); }
       const blades = scatterGrass({
         x0, z0, x1: Math.min(h, x0 + CH), z1: Math.min(h, z0 + CH), seed: P.seed + 77,
-        maskAt: (x, z) => this.sampleMask(this.grassMask, x, z) * SOILS[this.soilAt(x, z)].grass,
+        maskAt: (x, z) => this.sampleMask(this.grassMask, x, z) * SOILS[this.soilAt(x, z)].grass * (this.shoreAt(x, z) === 1 ? .3 : 1), // praia rala
         heightAt: (x, z) => this.heightAt(x, z), fields: P.fields, p: P.grass,
         blockedAt: P.grass.underTrees ? blocked : (x, z) => blocked(x, z) || this.sampleMask(this.treeMask, x, z) > .5,
       });
@@ -763,7 +776,7 @@ export class VegWorld {
     const eco = this.getEco(), season = seasonAt(P.ecology).index;
     const suitAt = (kind, x, z) => { const k = this.ecoIndex(x, z); return k < 0 ? 0 : suitability(kind, eco, k); };
     // beira d'água também é intenção (junco, samambaia, musgo), sem precisar pintar
-    const nearAt = (x, z) => { const k = this.ecoIndex(x, z); return k < 0 ? 0 : smoothstep(.45, .75, eco.near[k]); };
+    const nearAt = (x, z) => { const k = this.ecoIndex(x, z); return k < 0 ? 0 : smoothstep(.45, .75, eco.near?.[k] ?? 0); };
     const maskAt = (x, z) => Math.max(this.sampleMask(this.floraMask, x, z), Math.min(1, this.sampleMask(this.treeMask, x, z)) * F.underTrees, nearAt(x, z) * (F.margin ?? 0));
     for (let cz = 0; cz < n; cz++) for (let cx = 0; cx < n; cx++) {
       const x0 = -h + cx * CH, z0 = -h + cz * CH;
