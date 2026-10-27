@@ -42,6 +42,7 @@ import * as THREE from 'three';
 import { VegWorld, defaultProject, migrateProject } from './veg-render.js';
 import { lightAt } from './veg-core.js';
 import { landscapeOnly } from './veg-landscape.js';
+import { freeSpot, stepTo } from './veg-walk.js';
 landscapeOnly();
 
 const canvas = document.getElementById('c');
@@ -78,7 +79,8 @@ function load(p, fill) {
   sun.color.set(L.sunColor); sun.intensity = 2.3 * L.sunI;
   const az = (35 + L.sunAz) * Math.PI / 180, el = L.sunEl * Math.PI / 180;
   sunDir.set(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az)).multiplyScalar(45);
-  player.position.set(0, world.heightAt(0, 0), 0);
+  const spot = freeSpot(world, 0, 0); // nunca dentro de árvore, rocha ou água
+  player.position.set(spot.x, world.heightAt(spot.x, spot.z), spot.z);
   document.getElementById('src').textContent = label || 'Floresta procedural padrão';
 }
 
@@ -121,21 +123,9 @@ function frame(now) {
   const speed = keys.has('ShiftLeft') ? 7 : 3.6;
   const len = Math.hypot(ix, iz) || 1;
   vel.lerp(new THREE.Vector2(ix / len * speed, iz / len * speed), 1 - Math.exp(-dt * 10));
-  const p = player.position, lim = world.P.size / 2 - 1;
-  let nx = Math.max(-lim, Math.min(lim, p.x + vel.x * dt)), nz = Math.max(-lim, Math.min(lim, p.z + vel.y * dt));
-  // colisão com troncos (círculo pelo tamanho da árvore) e com degraus altos
-  for (const t of world.trees) {
-    const r = .35 * (t.drawScale ?? t.scale) + .3, dx = nx - t.x, dz = nz - t.z, d = Math.hypot(dx, dz);
-    if (d < r && d > 1e-4) { nx = t.x + dx / d * r; nz = t.z + dz / d * r; }
-  }
-  // pedras, matacões e afloramentos também barram; seixos se pisa por cima
-  for (const k of world.rocks) {
-    if (k.kind === 'seixo') continue;
-    const r = k.r * .8 + .25, dx = nx - k.x, dz = nz - k.z, d = Math.hypot(dx, dz);
-    if (d < r && d > 1e-4) { nx = k.x + dx / d * r; nz = k.z + dz / d * r; }
-  }
-  if (world.heightAt(nx, nz) - p.y <= .6) { p.x = nx; p.z = nz; }
-  p.y += (world.heightAt(p.x, p.z) - p.y) * (1 - Math.exp(-dt * 18));
+  // mesma colisão e degrau do modo Passear do editor (veg-walk.js)
+  const p = player.position;
+  stepTo(world, p, p.x + vel.x * dt, p.z + vel.y * dt, dt);
   if (vel.lengthSq() > .05) player.rotation.y = Math.atan2(vel.x, vel.y);
 
   // a grama se abre em volta do jogador (mesmo uniform do cursor no editor)

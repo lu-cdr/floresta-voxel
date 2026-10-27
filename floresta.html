@@ -138,6 +138,18 @@
   .clock kbd { font: 500 10px/1 var(--f-pixel); color: var(--muted); }
   /* modo foto: só a cena e uma barra pequena */
   body.photo .brand, body.photo .tools, body.photo .clock, body.photo .hint, body.photo .lil-gui.root, body.photo .tip { display: none !important; }
+  /* passeio em 1ª pessoa: só a cena, uma dica e o botão de voltar; a foto esconde até isso */
+  body.walk .left, body.walk .clock, body.walk .hint, body.walk .lil-gui.root, body.walk .tip, body.photo .walkbar { display: none !important; }
+  body.walk #scene { cursor: crosshair; }
+  .walkbar {
+    position: fixed; z-index: 6; bottom: 16px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 32px);
+    display: flex; align-items: center; gap: 12px; padding: 7px 8px 7px 14px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
+    font: 500 12.5px/1.3 var(--f-body); color: var(--muted);
+  }
+  .walkbar[hidden] { display: none; }
+  .walkbar button { font: 600 12.5px/1 var(--f-body); color: var(--ink); background: var(--chip); border: 1px solid transparent; border-radius: 9px; padding: 8px 10px; cursor: pointer; white-space: nowrap; }
+  .walkbar button:active { transform: scale(.97); }
   .photobar {
     position: fixed; z-index: 6; bottom: 16px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 32px);
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 10px 8px 14px;
@@ -325,6 +337,7 @@
   </div>
   <label class="chk" title="As cores da floresta mudam com a estação"><input type="checkbox" id="cSeasonal"> Cores da estação</label>
   <button id="cPhoto" title="Esconder a interface e salvar uma imagem (P)">Foto <kbd>P</kbd></button>
+  <button id="cWalk" title="Andar dentro da floresta em 1ª pessoa (V)">Passear <kbd>V</kbd></button>
   <div class="mode" role="radiogroup" aria-label="Modo">
     <button data-mode="criativo" role="radio" title="Tudo adulto, o tempo só muda luz e cor">Criativo</button>
     <button data-mode="ecossistema" role="radio" title="Árvores nascem, crescem, envelhecem e viram toco com o tempo">Ecossistema</button>
@@ -343,6 +356,10 @@
   <span class="pmsg" id="pMsg" aria-live="polite"></span>
 </div>
 <div class="flash" id="flash"></div>
+<div class="walkbar" id="walkbar" role="group" aria-label="Passeio" hidden>
+  <span id="walkHint">WASD anda · clique e mova o mouse para olhar · Shift corre · P foto · Esc volta</span>
+  <button id="wExit" type="button">Voltar ao editor</button>
+</div>
 <div class="hint" id="hint">Arraste para pintar · botão direito gira · roda dá zoom · Shift apaga · [ ] raio · Ctrl+Z desfaz</div>
 <input type="file" id="fileProject" accept=".json,application/json" hidden>
 <input type="file" id="fileStyle" accept=".json,application/json" hidden>
@@ -368,6 +385,7 @@ import { History, snapshotLayers, makePatch, applyPatch } from './veg-history.js
 import { SOILS, explainCell } from './veg-eco.js';
 import { capturePhoto, photoFileName, maxPhotoScale } from './veg-photo.js';
 import { landscapeOnly } from './veg-landscape.js';
+import { FirstPerson } from './veg-walk.js';
 landscapeOnly();
 
 const $ = s => document.querySelector(s);
@@ -640,7 +658,7 @@ function stamp(e, first) {
 canvas.addEventListener('pointerdown', e => {
   pointers.add(e.pointerId);
   if (pointers.size > 1) { endStroke(); return; } // segundo dedo: vira gesto de câmera
-  if (brush.tool !== 'camera' && e.button === 0 && !photoOn) {
+  if (brush.tool !== 'camera' && e.button === 0 && !photoOn && !walkOn) {
     painting = true;
     canvas.setPointerCapture(e.pointerId);
     stroke = { before: snapshotLayers(world.maskLayers()), bounds: null, label: '' };
@@ -654,7 +672,7 @@ canvas.addEventListener('pointermove', e => {
     const hit = pick(e);
     if (hit) { cursor.x = hit.x; cursor.z = hit.z; cursor.on = true; }
   }
-  if (photoOn) return;
+  if (photoOn || walkOn) return;
   if (viewLayer.key !== 'nenhum') probeAt(e);
   treeTip(e);
 });
@@ -677,6 +695,8 @@ addEventListener('keydown', e => {
   if (k === 'escape' && photoOn) { setPhoto(false); return; }
   if (k === 'p') { setPhoto(!photoOn); return; }
   if (photoOn) return;
+  if (k === 'v' || (k === 'escape' && walkOn)) { setWalk(!walkOn); return; }
+  if (walkOn) return; // WASD, E, C… são do passeio, não atalhos de ferramenta
   if (k === 'c') setTool('camera');
   else if (k === '1') setTool('arvores');
   else if (k === '2') setTool('grama');
@@ -1124,8 +1144,9 @@ function setPhoto(on) {
   photoOn = on;
   document.body.classList.toggle('photo', on);
   $('#photobar').hidden = !on;
-  ring.visible = !on && brush.tool !== 'camera';
-  // na foto o botão esquerdo gira a câmera, como na ferramenta Câmera
+  ring.visible = !on && !walkOn && brush.tool !== 'camera';
+  if (on && document.pointerLockElement) document.exitPointerLock(); // no passeio: soltar o mouse para usar a barra
+  // na foto o botão esquerdo gira a câmera, como na ferramenta Câmera (no passeio, arrastar olha)
   if (on) controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
   else applyToolToControls();
   if (on) {
@@ -1170,6 +1191,42 @@ $('#pShot').addEventListener('click', async () => {
   } finally { btn.disabled = false; }
 });
 
+/* ---------- passeio em 1ª pessoa ----------
+   Nasce num lugar livre perto do centro da vista, olhando para onde a câmera olhava.
+   Sai no mesmo enquadramento de antes; P abre a foto com a câmera do passeio. */
+let walkOn = false, walkBack = null;
+const walker = new FirstPerson({ world, camera: persp, dom: canvas });
+function setWalk(on) {
+  if (on === walkOn) return;
+  walkOn = on;
+  document.body.classList.toggle('walk', on);
+  $('#walkbar').hidden = !on;
+  if (on) {
+    walkBack = { cam: camera, pos: persp.position.clone(), quat: persp.quaternion.clone(), target: controls.target.clone() };
+    camera = persp; controls.enabled = false; ring.visible = false; cursor.on = false;
+    const t = controls.target, d = t.clone().sub(walkBack.pos);
+    walker.world = world;
+    walker.start(t.x, t.z, Math.atan2(-d.x, -d.z));
+    $('#walkHint').textContent = matchMedia('(pointer: coarse)').matches
+      ? 'Arraste à esquerda para andar e à direita para olhar'
+      : 'WASD anda · clique e mova o mouse para olhar · Shift corre · P foto · Esc volta';
+    busy('Passeando. Esc ou V volta ao editor.');
+  } else {
+    walker.stop();
+    camera = walkBack.cam; persp.position.copy(walkBack.pos); persp.quaternion.copy(walkBack.quat);
+    controls.target.copy(walkBack.target); controls.enabled = true;
+    ring.visible = brush.tool !== 'camera';
+    busy('');
+  }
+}
+$('#cWalk').addEventListener('click', () => setWalk(true));
+$('#wExit').addEventListener('click', () => setWalk(false));
+// Esc com o mouse travado só solta a trava (o navegador engole a tecla): avisa que o próximo Esc sai
+document.addEventListener('pointerlockchange', () => {
+  if (!walkOn || photoOn) return;
+  busy(document.pointerLockElement ? '' : 'Clique para olhar de novo · Esc volta ao editor');
+});
+
 /* ---------- laço ---------- */
 function resize() {
   const w = innerWidth, h = innerHeight;
@@ -1206,12 +1263,15 @@ function frame(now) {
     store.set('floresta-voxel:projeto', JSON.stringify({ ...world.P, masks: world.packMasks() }));
     dirty.save = 0;
   }
-  world.U.uPush.value.set(cursor.x, cursor.z, Math.max(1, brush.radius * .5), cursor.on && brush.tool !== 'camera' && !photoOn ? .5 : 0);
+  if (walkOn) world.U.uPush.value.set(walker.pos.x, walker.pos.z, 1.1, .55); // a grama abre em volta de quem passeia
+  else world.U.uPush.value.set(cursor.x, cursor.z, Math.max(1, brush.radius * .5), cursor.on && brush.tool !== 'camera' && !photoOn ? .5 : 0);
   world.update(t);
   if (ring.visible) updateRing();
   if (world.stats.fila) busy(`Gerando variantes… ${world.stats.fila} na fila`);
   else if ($('#busy').textContent.startsWith('Gerando variantes')) busy(''); // recolorir é rápido e visível: sem aviso
-  controls.update();
+  if (walkOn) { walker.frozen = photoOn; walker.update(Math.min(.05, (now - (frame.last ?? now)) / 1000)); }
+  else controls.update(); // desligado ou não, o update reposiciona a câmera: no passeio ele não roda
+  frame.last = now;
   renderer.render(scene, camera);
   frames++;
   if (now - fpsT > 500) {
