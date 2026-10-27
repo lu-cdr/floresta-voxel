@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Ícones convertidos</title>
+<style>
+  body { font: 12px system-ui; background: #fbf8f2; margin: 16px; --ink: #2a2420; }
+  body.dark { background: #25221e; color: #f0e9dd; --ink: #efe6d6; }
+  .grid { display: grid; grid-template-columns: repeat(10, 100px); gap: 8px; }
+  figure { margin: 0; text-align: center; } .big { width: 72px; height: 72px; display: block; margin: 0 auto 2px; object-fit: contain; }
+  .small { width: 24px; height: 24px; }
+</style></head><body>
+<div class="grid" id="g"></div>
+<script type="module">
+import { ICON_DATA } from '../veg-icons-data.js';
+if (location.hash === '#dark') document.body.classList.add('dark');
+const svg = (d, cls) => {
+  const h = d.rows.length, w = d.rows[0].length, P = {};
+  d.rows.forEach((r, y) => { for (let x = 0; x < w;) { const c = r[x]; let e = x + 1; while (e < w && r[e] === c) e++; if (c !== '.') (P[c] ||= []).push(`M${x} ${y}h${e - x}v1h${x - e}z`); x = e; } });
+  return `<svg class="${cls}" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges">${Object.entries(P).map(([c, p]) => `<path fill="${d.pal[c] === 'ink' ? 'var(--ink)' : d.pal[c]}" d="${p.join('')}"/>`).join('')}</svg>`;
+};
+const g = document.getElementById('g');
+for (const [k, d] of Object.entries(ICON_DATA)) g.insertAdjacentHTML('beforeend', `<figure>${svg(d, 'big')}${svg(d, 'small')}<figcaption>${k}</figcaption></figure>`);
+</script></body></html>
