@@ -1254,11 +1254,13 @@ const touch = () => matchMedia('(pointer: coarse)').matches;
 // mouse travado = jogando (mira no centro); solto = pausa com "Clique para jogar". O Esc que solta
 // a trava é engolido pelo navegador, então o próximo Esc é que volta ao editor.
 function syncLock() {
-  const locked = document.pointerLockElement === canvas;
+  const locked = document.pointerLockElement === canvas || walker.noLock; // sem trava possível: joga arrastando
+  if (walkOn && walker.noLock && !touch()) $('#walkHint').textContent = 'WASD anda · arraste para olhar · Espaço pula · W W corre · Shift agacha · P foto · Esc volta';
   document.body.classList.toggle('walk-locked', walkOn && (locked || touch()));
   document.body.classList.toggle('walk-paused', walkOn && !locked && !touch() && !photoOn);
 }
 document.addEventListener('pointerlockchange', syncLock);
+walker.onLockChange = syncLock;
 $('#walkPlay').addEventListener('click', () => walker.lock());
 
 /* ---------- laço ---------- */

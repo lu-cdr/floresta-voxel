@@ -73,10 +73,12 @@ export class FirstPerson {
     on(window, 'keyup', e => this.keys.delete(e.code));
     on(window, 'blur', () => { this.keys.clear(); this.sprint = false; });
     on(document, 'mousemove', e => { if (this.locked) this.turn(e.movementX, e.movementY, .0022); });
+    // onde o navegador não deixa travar (painel embutido, iframe sem permissão), cai para arrastar e olhar
+    document.addEventListener('pointerlockerror', () => this.active && this.failLock());
     on(dom, 'pointerdown', e => {
       if (e.pointerType === 'mouse') {
-        if (this.frozen) this.look = { id: e.pointerId, x: e.clientX, y: e.clientY }; // foto: arrastar olha
-        else this.lock();                                                            // jogando: clique trava o mouse
+        if (this.frozen || this.noLock) this.look = { id: e.pointerId, x: e.clientX, y: e.clientY }; // foto ou sem trava: arrastar olha
+        else this.lock();                                                                          // jogando: clique trava o mouse
       } else if (e.clientX < innerWidth / 2 && !this.move) this.move = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: 0, y: 0 };
       else this.look = { id: e.pointerId, x: e.clientX, y: e.clientY };
       // com o mouse travado o navegador recusa a captura (InvalidStateError); só arrastos precisam dela
@@ -97,7 +99,13 @@ export class FirstPerson {
     this.yaw -= dx * k;
     this.pitch = Math.max(-1.55, Math.min(1.55, this.pitch - dy * k)); // olha quase reto para cima e para baixo
   }
-  lock() { if (matchMedia('(pointer: fine)').matches && !this.locked) this.dom.requestPointerLock?.()?.catch?.(() => {}); }
+  lock() {
+    if (this.noLock || this.locked || !matchMedia('(pointer: fine)').matches) return;
+    if (!this.dom.requestPointerLock) return this.failLock();
+    try { this.dom.requestPointerLock()?.catch?.(() => this.failLock()); } catch { this.failLock(); }
+  }
+  // a trava falhou uma vez: neste navegador olhar é arrastando (lembrado enquanto a página estiver aberta)
+  failLock() { if (this.noLock) return; this.noLock = true; this.onLockChange?.(); }
   jump() { this.jumpReq = true; }
   start(x, z, yaw = 0) {
     const p = freeSpot(this.world, x, z);
